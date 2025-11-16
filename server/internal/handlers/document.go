@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
 	"github.com/guijoazeiro/text-editor/tree/main/server/pkg/response"
 	"gorm.io/gorm"
@@ -36,4 +37,38 @@ func (h *DocumentHandler) Create(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusCreated, "Document created successfully", document)
+}
+
+func (h *DocumentHandler) List(c *gin.Context) {
+	var documents []models.Document
+
+	if err := h.db.Order("created_at desc").Find(&documents).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to list documents", err)
+		return
+	}
+
+	response.Success(c, http.StatusOK, "Documents fetched successfully", documents)
+}
+
+func (h *DocumentHandler) GetByID(c *gin.Context) {
+	id := c.Param("id")
+	documentID, err := uuid.Parse(id)
+
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
+		return
+	}
+
+	var document models.Document
+
+	if err := h.db.First(&document, "id = ?", documentID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.Error(c, http.StatusNotFound, "Document not found", err)
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
+		return
+	}
+
+	response.Success(c, http.StatusOK, "Document fetched successfully", document)
 }
