@@ -72,3 +72,45 @@ func (h *DocumentHandler) GetByID(c *gin.Context) {
 
 	response.Success(c, http.StatusOK, "Document fetched successfully", document)
 }
+
+func (h *DocumentHandler) Update(c *gin.Context) {
+	id := c.Param("id")
+	documentID, err := uuid.Parse(id)
+
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
+		return
+	}
+
+	var req models.UpdateDocumentRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+
+	var document models.Document
+
+	if err := h.db.First(&document, "id = ?", documentID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.Error(c, http.StatusNotFound, "Document not found", err)
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
+		return
+	}
+
+	if req.Title != "" {
+		document.Title = req.Title
+	}
+	if req.Content != "" {
+		document.Content = req.Content
+	}
+
+	if err := h.db.Save(&document).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to update document", err)
+		return
+	}
+
+	response.Success(c, http.StatusOK, "Document updated successfully", document)
+}
