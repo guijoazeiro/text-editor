@@ -67,6 +67,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config) *gin.Engine {
 			documents.GET("", documentHandler.List)
 			documents.GET("/:id", documentHandler.GetByID)
 			documents.PUT("/:id", documentHandler.Update)
+			documents.DELETE("/:id", documentHandler.Delete)
 		}
 	}
 

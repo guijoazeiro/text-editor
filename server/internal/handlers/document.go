@@ -114,3 +114,25 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 
 	response.Success(c, http.StatusOK, "Document updated successfully", document)
 }
+
+func (h *DocumentHandler) Delete(c *gin.Context) {
+	id := c.Param("id")
+	documentID, err := uuid.Parse(id)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
+		return
+	}
+
+	result := h.db.Delete(&models.Document{}, "id = ?", documentID)
+	if result.Error != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to delete document", result.Error)
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		response.Error(c, http.StatusNotFound, "Document not found", nil)
+		return
+	}
+
+	response.Success(c, http.StatusOK, "Document deleted successfully", nil)
+}
