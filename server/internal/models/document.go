@@ -11,6 +11,8 @@ type Document struct {
 	ID        uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
 	Title     string    `gorm:"not null" json:"title" binding:"required"`
 	Content   string    `gorm:"type:text" json:"content"`
+	UserID    uuid.UUID `gorm:"type:uuid;not null" json:"user_id"`
+	User      User      `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

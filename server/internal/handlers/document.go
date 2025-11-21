@@ -19,8 +19,13 @@ func NewDocumentHandler(db *gorm.DB) *DocumentHandler {
 }
 
 func (h *DocumentHandler) Create(c *gin.Context) {
-	var req models.CreateDocumentRequest
+	userID, exists := c.Get("user_id")
+	if !exists {
+		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+		return
+	}
 
+	var req models.CreateDocumentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid request body", err)
 		return
@@ -29,6 +34,7 @@ func (h *DocumentHandler) Create(c *gin.Context) {
 	document := models.Document{
 		Title:   req.Title,
 		Content: req.Content,
+		UserID:  userID.(uuid.UUID),
 	}
 
 	if err := h.db.Create(&document).Error; err != nil {
@@ -40,10 +46,16 @@ func (h *DocumentHandler) Create(c *gin.Context) {
 }
 
 func (h *DocumentHandler) List(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+		return
+	}
+
 	var documents []models.Document
 
-	if err := h.db.Order("created_at desc").Find(&documents).Error; err != nil {
-		response.Error(c, http.StatusInternalServerError, "Failed to list documents", err)
+	if err := h.db.Where("user_id = ?", userID.(uuid.UUID)).Order("created_at DESC").Find(&documents).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to fetch documents", err)
 		return
 	}
 
@@ -51,19 +63,23 @@ func (h *DocumentHandler) List(c *gin.Context) {
 }
 
 func (h *DocumentHandler) GetByID(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+		return
+	}
+
 	id := c.Param("id")
 	documentID, err := uuid.Parse(id)
-
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
 		return
 	}
 
 	var document models.Document
-
-	if err := h.db.First(&document, "id = ?", documentID).Error; err != nil {
+	if err := h.db.First(&document, "id = ? AND user_id = ?", documentID, userID.(uuid.UUID)).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			response.Error(c, http.StatusNotFound, "Document not found", err)
+			response.Error(c, http.StatusNotFound, "Document not found or access denied", err)
 			return
 		}
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
@@ -74,26 +90,29 @@ func (h *DocumentHandler) GetByID(c *gin.Context) {
 }
 
 func (h *DocumentHandler) Update(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+		return
+	}
+
 	id := c.Param("id")
 	documentID, err := uuid.Parse(id)
-
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
 		return
 	}
 
 	var req models.UpdateDocumentRequest
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid request body", err)
 		return
 	}
 
 	var document models.Document
-
-	if err := h.db.First(&document, "id = ?", documentID).Error; err != nil {
+	if err := h.db.First(&document, "id = ? AND user_id = ?", documentID, userID.(uuid.UUID)).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			response.Error(c, http.StatusNotFound, "Document not found", err)
+			response.Error(c, http.StatusNotFound, "Document not found or access denied", err)
 			return
 		}
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
@@ -116,6 +135,12 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 }
 
 func (h *DocumentHandler) Delete(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+		return
+	}
+
 	id := c.Param("id")
 	documentID, err := uuid.Parse(id)
 	if err != nil {
@@ -123,14 +148,14 @@ func (h *DocumentHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	result := h.db.Delete(&models.Document{}, "id = ?", documentID)
+	result := h.db.Where("user_id = ?", userID.(uuid.UUID)).Delete(&models.Document{}, "id = ?", documentID)
 	if result.Error != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to delete document", result.Error)
 		return
 	}
 
 	if result.RowsAffected == 0 {
-		response.Error(c, http.StatusNotFound, "Document not found", nil)
+		response.Error(c, http.StatusNotFound, "Document not found or access denied", nil)
 		return
 	}
 
