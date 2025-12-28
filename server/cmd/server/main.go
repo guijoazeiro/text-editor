@@ -9,7 +9,6 @@ import (
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/database"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/handlers"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/middleware"
-	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
 )
@@ -21,17 +20,13 @@ func main() {
 
 	cfg := config.New()
 
-	//if err := database.RunMigrations(cfg.DatabaseURL); err != nil {
-	//	log.Fatal("Failed to run migrations:", err)
-	//}
+	if err := database.RunMigrations(cfg.DatabaseURL); err != nil {
+		log.Fatal("Failed to run migrations:", err)
+	}
 
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
-	}
-
-	if err := db.AutoMigrate(&models.User{}, &models.Document{}); err != nil {
-		log.Fatal("Failed to auto-migrate:", err)
 	}
 
 	log.Println("Database connected successfully")
