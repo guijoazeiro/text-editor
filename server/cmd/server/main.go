@@ -55,6 +55,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 
 	authHandler := handlers.NewAuthHandler(db, jwtService)
 	documentHandler := handlers.NewDocumentHandler(db)
+	collaboratorHandler := handlers.NewCollaboratorHandler(db)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -73,13 +74,26 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 		}
 
 		documents := api.Group("/documents")
-		documents.Use(middleware.AuthRequired(jwtService))
 		{
-			documents.POST("", documentHandler.Create)
-			documents.GET("", documentHandler.List)
-			documents.GET("/:id", documentHandler.GetByID)
-			documents.PUT("/:id", documentHandler.Update)
-			documents.DELETE("/:id", documentHandler.Delete)
+			documents.GET("/shared/:token", collaboratorHandler.GetByShareLink)
+
+			protected := documents.Group("")
+			protected.Use(middleware.AuthRequired(jwtService))
+			{
+				protected.POST("", documentHandler.Create)
+				protected.GET("", documentHandler.List)
+				protected.GET("/:id", documentHandler.GetByID)
+				protected.PUT("/:id", documentHandler.Update)
+				protected.DELETE("/:id", documentHandler.Delete)
+
+				protected.POST("/:id/collaborators", collaboratorHandler.AddCollaborator)
+				protected.GET("/:id/collaborators", collaboratorHandler.ListCollaborators)
+				protected.PUT("/:id/collaborators/:user_id", collaboratorHandler.UpdateCollaborator)
+				protected.DELETE("/:id/collaborators/:user_id", collaboratorHandler.RemoveCollaborator)
+
+				protected.POST("/:id/share-link", collaboratorHandler.CreateShareLink)
+				protected.DELETE("/:id/share-link", collaboratorHandler.DeleteShareLink)
+			}
 		}
 	}
 
