@@ -6,16 +6,21 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
+	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
 	"github.com/guijoazeiro/text-editor/tree/main/server/pkg/response"
 	"gorm.io/gorm"
 )
 
 type DocumentHandler struct {
-	db *gorm.DB
+	db                *gorm.DB
+	permissionService *services.PermissionService
 }
 
 func NewDocumentHandler(db *gorm.DB) *DocumentHandler {
-	return &DocumentHandler{db: db}
+	return &DocumentHandler{
+		db:                db,
+		permissionService: services.NewPermissionService(db),
+	}
 }
 
 func (h *DocumentHandler) Create(c *gin.Context) {
@@ -89,14 +94,29 @@ func (h *DocumentHandler) List(c *gin.Context) {
 		return
 	}
 
-	var documents []models.Document
-
-	if err := h.db.Preload("User").Where("user_id = ?", userUUID).Order("created_at DESC").Find(&documents).Error; err != nil {
+	var ownedDocs []models.Document
+	if err := h.db.Preload("User").Where("user_id = ?", userUUID).Order("created_at DESC").Find(&ownedDocs).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch documents", err)
 		return
 	}
 
-	response.Success(c, http.StatusOK, "Documents fetched successfully", documents)
+	var collaborations []models.DocumentCollaborator
+	if err := h.db.Where("user_id = ?", userUUID).Find(&collaborations).Error; err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to fetch collaborations", err)
+		return
+	}
+
+	var sharedDocs []models.Document
+	for _, collab := range collaborations {
+		var doc models.Document
+		if err := h.db.Preload("User").First(&doc, collab.DocumentID).Error; err == nil {
+			sharedDocs = append(sharedDocs, doc)
+		}
+	}
+
+	allDocs := append(ownedDocs, sharedDocs...)
+
+	response.Success(c, http.StatusOK, "Documents fetched successfully", allDocs)
 }
 
 func (h *DocumentHandler) GetByID(c *gin.Context) {
@@ -129,17 +149,27 @@ func (h *DocumentHandler) GetByID(c *gin.Context) {
 		return
 	}
 
+	if !h.permissionService.CanView(documentID, userUUID) {
+		response.Error(c, http.StatusForbidden, "Access denied", nil)
+		return
+	}
+
 	var document models.Document
-	if err := h.db.Preload("User").First(&document, "id = ? AND user_id = ?", documentID, userUUID).Error; err != nil {
+	if err := h.db.Preload("User").First(&document, "id = ?", documentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			response.Error(c, http.StatusNotFound, "Document not found or access denied", err)
+			response.Error(c, http.StatusNotFound, "Document not found", err)
 			return
 		}
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
 		return
 	}
 
-	response.Success(c, http.StatusOK, "Document fetched successfully", document)
+	permission, _ := h.permissionService.GetUserPermission(documentID, userUUID)
+
+	response.Success(c, http.StatusOK, "Document fetched successfully", gin.H{
+		"document":   document,
+		"permission": permission,
+	})
 }
 
 func (h *DocumentHandler) Update(c *gin.Context) {
@@ -172,6 +202,11 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 		return
 	}
 
+	if !h.permissionService.CanEdit(documentID, userUUID) {
+		response.Error(c, http.StatusForbidden, "You don't have permission to edit this document", nil)
+		return
+	}
+
 	var req models.UpdateDocumentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid request body", err)
@@ -179,9 +214,9 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 	}
 
 	var document models.Document
-	if err := h.db.Preload("User").First(&document, "id = ? AND user_id = ?", documentID, userUUID).Error; err != nil {
+	if err := h.db.Preload("User").First(&document, "id = ?", documentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			response.Error(c, http.StatusNotFound, "Document not found or access denied", err)
+			response.Error(c, http.StatusNotFound, "Document not found", err)
 			return
 		}
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
@@ -238,14 +273,19 @@ func (h *DocumentHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	result := h.db.Where("user_id = ?", userUUID).Delete(&models.Document{}, "id = ?", documentID)
+	if !h.permissionService.IsOwner(documentID, userUUID) {
+		response.Error(c, http.StatusForbidden, "Only the owner can delete this document", nil)
+		return
+	}
+
+	result := h.db.Delete(&models.Document{}, "id = ?", documentID)
 	if result.Error != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to delete document", result.Error)
 		return
 	}
 
 	if result.RowsAffected == 0 {
-		response.Error(c, http.StatusNotFound, "Document not found or access denied", nil)
+		response.Error(c, http.StatusNotFound, "Document not found", nil)
 		return
 	}
 
