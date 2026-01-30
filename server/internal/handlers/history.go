@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
 	"github.com/guijoazeiro/text-editor/tree/main/server/pkg/response"
 	"gorm.io/gorm"
@@ -55,7 +56,36 @@ func (h *HistoryHandler) GetDocumentHistory(c *gin.Context) {
 		return
 	}
 
-	histories, err := h.historyService.GetDocumentHistory(documentID)
+	var filterUserID *uuid.UUID
+	if userIDParam := c.Query("user_id"); userIDParam != "" {
+		parsed, err := uuid.Parse(userIDParam)
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, "Invalid user_id filter", err)
+			return
+		}
+		filterUserID = &parsed
+	}
+
+	var actionFilter *models.ActionType
+	if actionParam := c.Query("action"); actionParam != "" {
+		action := models.ActionType(actionParam)
+		if action != models.ActionCreated && action != models.ActionUpdated &&
+			action != models.ActionTitleChanged && action != models.ActionContentChanged {
+			response.Error(c, http.StatusBadRequest, "Invalid action type", nil)
+			return
+		}
+		actionFilter = &action
+	}
+
+	var fromDate, toDate *string
+	if from := c.Query("from_date"); from != "" {
+		fromDate = &from
+	}
+	if to := c.Query("to_date"); to != "" {
+		toDate = &to
+	}
+
+	histories, err := h.historyService.GetDocumentHistory(documentID, filterUserID, actionFilter, fromDate, toDate)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch history", err)
 		return

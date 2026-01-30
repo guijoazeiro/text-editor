@@ -63,12 +63,26 @@ func (s *HistoryService) RecordUpdate(documentID, userID uuid.UUID, oldDoc, newD
 	return s.db.Create(&history).Error
 }
 
-func (s *HistoryService) GetDocumentHistory(documentID uuid.UUID) ([]models.DocumentHistory, error) {
+func (s *HistoryService) GetDocumentHistory(documentID uuid.UUID, userID *uuid.UUID, action *models.ActionType, fromDate, toDate *string) ([]models.DocumentHistory, error) {
+	query := s.db.Preload("User").Where("document_id = ?", documentID)
+
+	if userID != nil {
+		query = query.Where("user_id = ?", *userID)
+	}
+
+	if action != nil {
+		query = query.Where("action = ?", *action)
+	}
+
+	if fromDate != nil {
+		query = query.Where("created_at >= ?", *fromDate)
+	}
+	if toDate != nil {
+		query = query.Where("created_at <= ?", *toDate)
+	}
+
 	var histories []models.DocumentHistory
-	err := s.db.Preload("User").
-		Where("document_id = ?", documentID).
-		Order("created_at DESC").
-		Find(&histories).Error
+	err := query.Order("created_at DESC").Find(&histories).Error
 	return histories, err
 }
 
