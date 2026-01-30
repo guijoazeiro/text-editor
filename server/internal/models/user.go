@@ -11,7 +11,7 @@ type User struct {
 	ID           uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"`
 	Name         string     `gorm:"not null" json:"name"`
 	Email        string     `gorm:"uniqueIndex;not null" json:"email"`
-	PasswordHash string     `gorm:"not null" json:"-"` // Never return password in JSON
+	PasswordHash string     `gorm:"not null" json:"-"`
 	Documents    []Document `gorm:"foreignKey:UserID" json:"documents,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`

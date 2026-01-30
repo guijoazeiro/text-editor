@@ -16,6 +16,7 @@ type DocumentHandler struct {
 	permissionService   *services.PermissionService
 	historyService      *services.HistoryService
 	notificationService *services.NotificationService
+	versionService      *services.VersionService
 }
 
 func NewDocumentHandler(db *gorm.DB) *DocumentHandler {
@@ -24,6 +25,7 @@ func NewDocumentHandler(db *gorm.DB) *DocumentHandler {
 		permissionService:   services.NewPermissionService(db),
 		historyService:      services.NewHistoryService(db),
 		notificationService: services.NewNotificationService(db),
+		versionService:      services.NewVersionService(db),
 	}
 }
 
@@ -68,6 +70,8 @@ func (h *DocumentHandler) Create(c *gin.Context) {
 	}
 
 	h.historyService.RecordCreation(document.ID, userUUID)
+
+	h.versionService.CreateVersion(document.ID, userUUID, document.Title, document.Content)
 
 	if err := h.db.Preload("User").First(&document, document.ID).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
@@ -244,6 +248,8 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 	}
 
 	h.historyService.RecordUpdate(documentID, userUUID, &documentBeforeUpdate, &oldDocument)
+
+	h.versionService.CreateVersion(documentID, userUUID, oldDocument.Title, oldDocument.Content)
 
 	h.notificationService.NotifyDocumentEdited(documentID, userUUID)
 
