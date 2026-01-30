@@ -40,7 +40,7 @@ func (h *NotificationHandler) List(c *gin.Context) {
 
 	var notifications []models.Notification
 	if err := h.db.Preload("FromUser").
-		Preload("Document").
+		Preload("Document.User").
 		Where("user_id = ?", userUUID).
 		Order("created_at DESC").
 		Find(&notifications).Error; err != nil {
