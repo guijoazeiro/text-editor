@@ -58,6 +58,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 	collaboratorHandler := handlers.NewCollaboratorHandler(db)
 	notificationHandler := handlers.NewNotificationHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
+	versionHandler := handlers.NewVersionHandler(db)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -97,6 +98,11 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 				protected.DELETE("/:id/share-link", collaboratorHandler.DeleteShareLink)
 
 				protected.GET("/:id/history", historyHandler.GetDocumentHistory)
+
+				protected.GET("/:id/versions", versionHandler.GetVersions)
+				protected.GET("/:id/versions/:version_number", versionHandler.GetVersion)
+				protected.POST("/:id/versions/:version_number/restore", versionHandler.RestoreVersion)
+				protected.GET("/:id/versions/compare", versionHandler.CompareVersions)
 			}
 		}
 
