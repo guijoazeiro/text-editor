@@ -12,14 +12,18 @@ import (
 )
 
 type DocumentHandler struct {
-	db                *gorm.DB
-	permissionService *services.PermissionService
+	db                  *gorm.DB
+	permissionService   *services.PermissionService
+	historyService      *services.HistoryService
+	notificationService *services.NotificationService
 }
 
 func NewDocumentHandler(db *gorm.DB) *DocumentHandler {
 	return &DocumentHandler{
-		db:                db,
-		permissionService: services.NewPermissionService(db),
+		db:                  db,
+		permissionService:   services.NewPermissionService(db),
+		historyService:      services.NewHistoryService(db),
+		notificationService: services.NewNotificationService(db),
 	}
 }
 
@@ -62,6 +66,8 @@ func (h *DocumentHandler) Create(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "Failed to create document", err)
 		return
 	}
+
+	h.historyService.RecordCreation(document.ID, userUUID)
 
 	if err := h.db.Preload("User").First(&document, document.ID).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
@@ -213,8 +219,8 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var document models.Document
-	if err := h.db.Preload("User").First(&document, "id = ?", documentID).Error; err != nil {
+	var oldDocument models.Document
+	if err := h.db.Preload("User").First(&oldDocument, "id = ?", documentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			response.Error(c, http.StatusNotFound, "Document not found", err)
 			return
@@ -223,24 +229,30 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 		return
 	}
 
+	documentBeforeUpdate := oldDocument
+
 	if req.Title != "" {
-		document.Title = req.Title
+		oldDocument.Title = req.Title
 	}
 	if req.Content != "" {
-		document.Content = req.Content
+		oldDocument.Content = req.Content
 	}
 
-	if err := h.db.Save(&document).Error; err != nil {
+	if err := h.db.Save(&oldDocument).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to update document", err)
 		return
 	}
 
-	if err := h.db.Preload("User").First(&document, document.ID).Error; err != nil {
+	h.historyService.RecordUpdate(documentID, userUUID, &documentBeforeUpdate, &oldDocument)
+
+	h.notificationService.NotifyDocumentEdited(documentID, userUUID)
+
+	if err := h.db.Preload("User").First(&oldDocument, oldDocument.ID).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
 		return
 	}
 
-	response.Success(c, http.StatusOK, "Document updated successfully", document)
+	response.Success(c, http.StatusOK, "Document updated successfully", oldDocument)
 }
 
 func (h *DocumentHandler) Delete(c *gin.Context) {

@@ -56,6 +56,8 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 	authHandler := handlers.NewAuthHandler(db, jwtService)
 	documentHandler := handlers.NewDocumentHandler(db)
 	collaboratorHandler := handlers.NewCollaboratorHandler(db)
+	notificationHandler := handlers.NewNotificationHandler(db)
+	historyHandler := handlers.NewHistoryHandler(db)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -93,7 +95,18 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 
 				protected.POST("/:id/share-link", collaboratorHandler.CreateShareLink)
 				protected.DELETE("/:id/share-link", collaboratorHandler.DeleteShareLink)
+
+				protected.GET("/:id/history", historyHandler.GetDocumentHistory)
 			}
+		}
+
+		notifications := api.Group("/notifications")
+		notifications.Use(middleware.AuthRequired(jwtService))
+		{
+			notifications.GET("", notificationHandler.List)
+			notifications.PUT("/:id/read", notificationHandler.MarkAsRead)
+			notifications.PUT("/read-all", notificationHandler.MarkAllAsRead)
+			notifications.DELETE("/:id", notificationHandler.Delete)
 		}
 	}
 

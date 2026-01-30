@@ -13,14 +13,16 @@ import (
 )
 
 type CollaboratorHandler struct {
-	db                *gorm.DB
-	permissionService *services.PermissionService
+	db                  *gorm.DB
+	permissionService   *services.PermissionService
+	notificationService *services.NotificationService
 }
 
 func NewCollaboratorHandler(db *gorm.DB) *CollaboratorHandler {
 	return &CollaboratorHandler{
-		db:                db,
-		permissionService: services.NewPermissionService(db),
+		db:                  db,
+		permissionService:   services.NewPermissionService(db),
+		notificationService: services.NewNotificationService(db),
 	}
 }
 
@@ -78,6 +80,8 @@ func (h *CollaboratorHandler) AddCollaborator(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "Failed to add collaborator", err)
 		return
 	}
+
+	h.notificationService.NotifyCollaboratorAdded(documentID, targetUser.ID, userUUID, req.Permission)
 
 	h.db.Preload("User").First(&collaborator, collaborator.ID)
 
@@ -168,6 +172,8 @@ func (h *CollaboratorHandler) UpdateCollaborator(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "Failed to update permission", err)
 		return
 	}
+
+	h.notificationService.NotifyPermissionChanged(documentID, targetUserID, userUUID, req.Permission)
 
 	h.db.Preload("User").First(&collaborator, collaborator.ID)
 	response.Success(c, http.StatusOK, "Permission updated successfully", collaborator)
