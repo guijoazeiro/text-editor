@@ -3,12 +3,14 @@ package main
 import (
 	"log"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/auth"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/config"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/database"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/handlers"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/middleware"
+	"github.com/guijoazeiro/text-editor/tree/main/server/internal/websocket"
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
 )
@@ -31,9 +33,13 @@ func main() {
 
 	log.Println("Database connected successfully")
 
+	hub := websocket.NewHub()
+	go hub.Run()
+	log.Println("WebSocket hub started")
+
 	jwtService := auth.NewJWT(cfg)
 
-	router := setupRouter(db, cfg, jwtService)
+	router := setupRouter(db, cfg, jwtService, hub)
 
 	port := cfg.Port
 	if port == "" {
@@ -46,12 +52,20 @@ func main() {
 	}
 }
 
-func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Engine {
+func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *websocket.Hub) *gin.Engine {
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	router := gin.Default()
+
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:3000"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
 
 	authHandler := handlers.NewAuthHandler(db, jwtService)
 	documentHandler := handlers.NewDocumentHandler(db)
@@ -59,6 +73,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 	notificationHandler := handlers.NewNotificationHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
 	versionHandler := handlers.NewVersionHandler(db)
+	wsHandler := handlers.NewWebSocketHandler(hub, db)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -66,6 +81,12 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 			"database": "connected",
 		})
 	})
+
+	ws := router.Group("/ws")
+	ws.Use(middleware.AuthRequired(jwtService))
+	{
+		ws.GET("/documents/:id", wsHandler.HandleWebSocket)
+	}
 
 	api := router.Group("/api")
 	{
@@ -88,6 +109,8 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT) *gin.Eng
 				protected.GET("/:id", documentHandler.GetByID)
 				protected.PUT("/:id", documentHandler.Update)
 				protected.DELETE("/:id", documentHandler.Delete)
+
+				protected.GET("/:id/active-users", wsHandler.GetActiveUsers)
 
 				protected.POST("/:id/collaborators", collaboratorHandler.AddCollaborator)
 				protected.GET("/:id/collaborators", collaboratorHandler.ListCollaborators)
