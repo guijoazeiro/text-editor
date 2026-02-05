@@ -32,7 +32,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 shadow-lg p-8">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <h1 className="text-4xl font-bold text-[#1479b0] mb-2">Docs Editor</h1>
@@ -57,7 +57,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1479b0] focus:border-transparent outline-none transition"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1479b0] focus:border-transparent outline-none transition placeholder:text-gray-400 text-gray-700"
                 placeholder="you@example.com"
               />
             </div>
@@ -72,9 +72,16 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1479b0] focus:border-transparent outline-none transition"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1479b0] focus:border-transparent outline-none transition text-gray-700 placeholder:text-gray-400"
                 placeholder="••••••••"
               />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center">
+                <input type="checkbox" className="rounded border-gray-300 text-[#1479b0] hover:bg-[#0f5f8d ]" />
+                <span className="ml-2 text-sm text-gray-600">Remember me</span>
+              </label>
+              <a href="#" className="text-sm text-[#1479b0] hover:underline">Forgot password?</a>
             </div>
 
             <button
