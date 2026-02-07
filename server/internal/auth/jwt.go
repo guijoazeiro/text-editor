@@ -9,18 +9,22 @@ import (
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/config"
 )
 
+type Claims struct {
+	UserID uuid.UUID `json:"user_id"`
+	Email  string    `json:"email"`
+	jwt.RegisteredClaims
+}
+
 type JWT struct {
 	secret []byte
 }
 
 func NewJWT(cfg *config.Config) *JWT {
-	return &JWT{secret: []byte(cfg.JwtSecret)}
-}
-
-type Claims struct {
-	UserID uuid.UUID `json:"user_id"`
-	Email  string    `json:"email"`
-	jwt.RegisteredClaims
+	secret := cfg.JWTSecret
+	if secret == "" {
+		secret = "your-secret-key-change-this-in-production"
+	}
+	return &JWT{secret: []byte(secret)}
 }
 
 func (j *JWT) GenerateToken(userID uuid.UUID, email string) (string, error) {
@@ -40,8 +44,12 @@ func (j *JWT) GenerateToken(userID uuid.UUID, email string) (string, error) {
 
 func (j *JWT) ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("invalid signing method")
+		}
 		return j.secret, nil
 	})
+
 	if err != nil {
 		return nil, err
 	}

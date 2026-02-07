@@ -1,4 +1,11 @@
-export type MessageType = 'join' | 'leave' | 'edit' | 'cursor' | 'presence' | 'sync' | 'awareness';
+export type MessageType =
+  | "join"
+  | "leave"
+  | "edit"
+  | "cursor"
+  | "presence"
+  | "sync"
+  | "awareness";
 
 export interface WSMessage {
   type: MessageType;
@@ -22,25 +29,26 @@ export class WebSocketClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
-  private messageHandlers: Map<MessageType, Set<(data: any) => void>> = new Map();
+  private messageHandlers: Map<MessageType, Set<(data: any) => void>> =
+    new Map();
   private connectionHandlers: Set<() => void> = new Set();
   private disconnectionHandlers: Set<() => void> = new Set();
 
   constructor(
     private documentId: string,
-    private token: string
-  ) {}
+    private token: string,
+  ) { }
 
   connect() {
-    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8080';
-    const url = `${WS_URL}/ws/documents/${this.documentId}`;
+    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
+    const url = `${WS_URL}/ws/documents/${this.documentId}?token=${this.token}`;
 
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
-      console.log('WebSocket connected');
+      console.log("WebSocket connected");
       this.reconnectAttempts = 0;
-      this.connectionHandlers.forEach(handler => handler());
+      this.connectionHandlers.forEach((handler) => handler());
     };
 
     this.ws.onmessage = (event) => {
@@ -48,20 +56,20 @@ export class WebSocketClient {
         const message: WSMessage = JSON.parse(event.data);
         const handlers = this.messageHandlers.get(message.type);
         if (handlers) {
-          handlers.forEach(handler => handler(message));
+          handlers.forEach((handler) => handler(message));
         }
       } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
+        console.error("Error parsing WebSocket message:", error);
       }
     };
 
     this.ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      console.error("WebSocket error:", error);
     };
 
     this.ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      this.disconnectionHandlers.forEach(handler => handler());
+      console.log("WebSocket disconnected");
+      this.disconnectionHandlers.forEach((handler) => handler());
       this.attemptReconnect();
     };
   }
@@ -80,7 +88,7 @@ export class WebSocketClient {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     } else {
-      console.error('WebSocket is not connected');
+      console.error("WebSocket is not connected");
     }
   }
 
