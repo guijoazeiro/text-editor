@@ -9,25 +9,27 @@ import (
 	"github.com/guijoazeiro/text-editor/tree/main/server/pkg/response"
 )
 
-func AuthRequired(jwt *auth.JWT) gin.HandlerFunc {
+func AuthRequired(jwtService *auth.JWT) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			response.Error(c, http.StatusUnauthorized, "Authorization header required", nil)
+		var token string
+
+		if authHeader != "" {
+			parts := strings.Split(authHeader, " ")
+			if len(parts) == 2 && parts[0] == "Bearer" {
+				token = parts[1]
+			}
+		} else {
+			token = c.Query("token")
+		}
+
+		if token == "" {
+			response.Error(c, http.StatusUnauthorized, "Authorization required", nil)
 			c.Abort()
 			return
 		}
 
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			response.Error(c, http.StatusUnauthorized, "Invalid authorization format", nil)
-			c.Abort()
-			return
-		}
-
-		token := parts[1]
-		claims, err := jwt.ValidateToken(token)
-
+		claims, err := jwtService.ValidateToken(token)
 		if err != nil {
 			response.Error(c, http.StatusUnauthorized, "Invalid or expired token", err)
 			c.Abort()

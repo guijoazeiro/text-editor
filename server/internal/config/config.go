@@ -6,7 +6,7 @@ type Config struct {
 	DatabaseURL string
 	Port        string
 	Environment string
-	JwtSecret   string
+	JWTSecret   string
 }
 
 func New() *Config {
@@ -14,7 +14,7 @@ func New() *Config {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://user:password@localhost:5432/docs_db?sslmode=disable"),
 		Port:        getEnv("PORT", "8080"),
 		Environment: getEnv("ENVIRONMENT", "development"),
-		JwtSecret:   getEnv("JWT_SECRET", "secret"),
+		JWTSecret:   getEnv("JWT_SECRET", "your-secret-key-change-this-in-production"),
 	}
 }
 
