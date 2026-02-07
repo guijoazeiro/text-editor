@@ -73,7 +73,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	notificationHandler := handlers.NewNotificationHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
 	versionHandler := handlers.NewVersionHandler(db)
-	wsHandler := handlers.NewWebSocketHandler(hub, db)
+	wsHandler := handlers.NewWebSocketHandler(hub, db, jwtService)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -83,7 +83,6 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	})
 
 	ws := router.Group("/ws")
-	ws.Use(middleware.AuthRequired(jwtService))
 	{
 		ws.GET("/documents/:id", wsHandler.HandleWebSocket)
 	}
