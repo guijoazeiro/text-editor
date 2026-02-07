@@ -37,13 +37,13 @@ export class WebSocketClient {
   constructor(
     private documentId: string,
     private token: string,
-  ) { }
+  ) {}
 
   connect() {
     const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
-    const url = `${WS_URL}/ws/documents/${this.documentId}?token=${this.token}`;
+    const url = `${WS_URL}/ws/documents/${this.documentId}`;
 
-    this.ws = new WebSocket(url);
+    this.ws = new WebSocket(url, ["access_token", this.token]);
 
     this.ws.onopen = () => {
       console.log("WebSocket connected");
@@ -53,6 +53,11 @@ export class WebSocketClient {
 
     this.ws.onmessage = (event) => {
       try {
+        if (typeof event.data !== "string") {
+          console.warn("Received non-string message:", event.data);
+          return;
+        }
+
         const message: WSMessage = JSON.parse(event.data);
         const handlers = this.messageHandlers.get(message.type);
         if (handlers) {
@@ -67,10 +72,13 @@ export class WebSocketClient {
       console.error("WebSocket error:", error);
     };
 
-    this.ws.onclose = () => {
-      console.log("WebSocket disconnected");
+    this.ws.onclose = (event) => {
+      console.log("WebSocket disconnected", event.code, event.reason);
       this.disconnectionHandlers.forEach((handler) => handler());
-      this.attemptReconnect();
+
+      if (event.code !== 1000) {
+        this.attemptReconnect();
+      }
     };
   }
 
@@ -81,6 +89,8 @@ export class WebSocketClient {
       setTimeout(() => {
         this.connect();
       }, this.reconnectDelay * this.reconnectAttempts);
+    } else {
+      console.error("Max reconnection attempts reached");
     }
   }
 
@@ -116,7 +126,7 @@ export class WebSocketClient {
 
   disconnect() {
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, "Client disconnect");
       this.ws = null;
     }
   }
