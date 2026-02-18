@@ -43,7 +43,13 @@ export class WebSocketClient {
     const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080";
     const url = `${WS_URL}/ws/documents/${this.documentId}`;
 
-    this.ws = new WebSocket(url, ["access_token", this.token]);
+    try {
+      this.ws = new WebSocket(url, ["access_token", this.token]);
+    } catch (error) {
+      console.error("Failed to create WebSocket:", error);
+      this.attemptReconnect();
+      return;
+    }
 
     this.ws.onopen = () => {
       console.log("WebSocket connected");
@@ -58,25 +64,46 @@ export class WebSocketClient {
           return;
         }
 
-        const message: WSMessage = JSON.parse(event.data);
-        const handlers = this.messageHandlers.get(message.type);
-        if (handlers) {
-          handlers.forEach((handler) => handler(message));
-        }
+        const messages = event.data
+          .trim()
+          .split('\n')
+          .filter(msg => msg.trim().length > 0);
+        
+        messages.forEach(msgStr => {
+          try {
+            const trimmedMsg = msgStr.trim();
+            if (!trimmedMsg) return;
+            
+            const message: WSMessage = JSON.parse(trimmedMsg);
+            const handlers = this.messageHandlers.get(message.type);
+            if (handlers) {
+              handlers.forEach((handler) => handler(message));
+            }
+          } catch (parseError) {
+            console.error("Error parsing WebSocket message:", parseError);
+            console.error("Problematic message:", msgStr);
+          }
+        });
       } catch (error) {
-        console.error("Error parsing WebSocket message:", error);
+        console.error("Error processing WebSocket message:", error);
       }
     };
 
     this.ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
+      console.warn("WebSocket connection error occurred");
+      if (this.ws) {
+        console.warn("WebSocket state:", {
+          readyState: this.ws.readyState,
+          url: this.ws.url,
+        });
+      }
     };
 
     this.ws.onclose = (event) => {
       console.log("WebSocket disconnected", event.code, event.reason);
       this.disconnectionHandlers.forEach((handler) => handler());
 
-      if (event.code !== 1000) {
+      if (event.code !== 1000 && event.code !== 1001) {
         this.attemptReconnect();
       }
     };
@@ -96,9 +123,13 @@ export class WebSocketClient {
 
   send(message: WSMessage) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
+      try {
+        this.ws.send(JSON.stringify(message));
+      } catch (error) {
+        console.error("Error sending WebSocket message:", error);
+      }
     } else {
-      console.error("WebSocket is not connected");
+      console.warn("WebSocket is not connected, message not sent:", message.type);
     }
   }
 
@@ -129,5 +160,9 @@ export class WebSocketClient {
       this.ws.close(1000, "Client disconnect");
       this.ws = null;
     }
+  }
+
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 }
