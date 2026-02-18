@@ -12,7 +12,7 @@ export default function EditorPage() {
     const params = useParams();
     const router = useRouter();
     const documentId = params.id as string;
-    const { isAuthenticated, loadFromStorage, user, token } = useAuthStore();
+    const { isAuthenticated, initialize, user, token, isHydrated } = useAuthStore();
 
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
@@ -23,13 +23,18 @@ export default function EditorPage() {
     const { ws, isConnected, onlineUsers } = useWebSocket(documentId, token || '');
 
     useEffect(() => {
-        loadFromStorage();
+        initialize();
+    }, [initialize]);
+
+    useEffect(() => {
+        if (!isHydrated) return;
+
         if (!isAuthenticated) {
             router.push('/login');
             return;
         }
         fetchDocument();
-    }, [isAuthenticated, documentId]);
+    }, [isAuthenticated, isHydrated, documentId]);
 
     useEffect(() => {
         if (!ws) return;
@@ -67,7 +72,6 @@ export default function EditorPage() {
         try {
             await documentsAPI.update(documentId, { title, content });
 
-            // Broadcast changes via WebSocket
             ws?.send({
                 type: 'edit',
                 data: { title, content },

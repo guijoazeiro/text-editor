@@ -19,13 +19,13 @@ interface Document {
 
 export default function DashboardPage() {
     const router = useRouter();
-    const { isAuthenticated, loadFromStorage } = useAuthStore();
+    const { isAuthenticated, initialize } = useAuthStore();
     const [documents, setDocuments] = useState<Document[]>([]);
     const [loading, setLoading] = useState(true);
     const [creating, setCreating] = useState(false);
 
     useEffect(() => {
-        loadFromStorage();
+        initialize();
         if (!isAuthenticated) {
             router.push('/login');
             return;
