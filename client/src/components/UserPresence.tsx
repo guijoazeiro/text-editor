@@ -1,4 +1,5 @@
 import { UserPresence as UserPresenceType } from '@/lib/websocket';
+import { useMemo } from 'react';
 
 interface Props {
     users: UserPresenceType[];
@@ -6,7 +7,17 @@ interface Props {
 }
 
 export default function UserPresence({ users, currentUserId }: Props) {
-    const otherUsers = users.filter((u) => u.user_id !== currentUserId);
+    const otherUsers = useMemo(() => {
+        const uniqueUsers = new Map<string, UserPresenceType>();
+        
+        users.forEach(user => {
+            if (user.user_id && user.user_id !== currentUserId) {
+                uniqueUsers.set(user.user_id, user);
+            }
+        });
+        
+        return Array.from(uniqueUsers.values()).filter(user => user.online !== false);
+    }, [users, currentUserId]);
 
     return (
         <div className="flex items-center space-x-2">
@@ -23,7 +34,10 @@ export default function UserPresence({ users, currentUserId }: Props) {
                     </div>
                 ))}
                 {otherUsers.length > 5 && (
-                    <div className="w-8 h-8 rounded-full border-2 border-white bg-gray-400 flex items-center justify-center text-xs font-medium text-white">
+                    <div 
+                        key="overflow"
+                        className="w-8 h-8 rounded-full border-2 border-white bg-gray-400 flex items-center justify-center text-xs font-medium text-white"
+                    >
                         +{otherUsers.length - 5}
                     </div>
                 )}
