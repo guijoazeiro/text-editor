@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
+	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
 )
 
 type Message struct {
@@ -21,14 +22,16 @@ type Hub struct {
 	Register   chan *Client
 	Unregister chan *Client
 	mu         sync.RWMutex
+	yjsService *services.YjsService
 }
 
-func NewHub() *Hub {
+func NewHub(yjsService *services.YjsService) *Hub {
 	return &Hub{
 		Clients:    make(map[uuid.UUID]map[*Client]bool),
 		Broadcast:  make(chan *Message, 256),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
+		yjsService: yjsService,
 	}
 }
 
@@ -68,6 +71,8 @@ func (h *Hub) Run() {
 			h.notifyUserLeft(client)
 
 		case message := <-h.Broadcast:
+			h.tryPersistYjsUpdate(message)
+
 			h.mu.RLock()
 			clients := h.Clients[message.DocumentID]
 			h.mu.RUnlock()
@@ -179,6 +184,45 @@ func (h *Hub) GetActiveUsers(documentID uuid.UUID) int {
 		return len(clients)
 	}
 	return 0
+}
+
+func (h *Hub) tryPersistYjsUpdate(message *Message) {
+	if h.yjsService == nil {
+		return
+	}
+
+	var wsMsg models.WSMessage
+	if err := json.Unmarshal(message.Data, &wsMsg); err != nil {
+		return
+	}
+
+	if wsMsg.Type != models.MessageTypeYjsSync {
+		return
+	}
+
+	updateData, ok := wsMsg.Data["update"]
+	if !ok {
+		return
+	}
+
+	var updateBytes []byte
+	switch v := updateData.(type) {
+	case []byte:
+		updateBytes = v
+	case []interface{}:
+		updateBytes = make([]byte, len(v))
+		for i, val := range v {
+			if num, ok := val.(float64); ok {
+				updateBytes[i] = byte(num)
+			}
+		}
+	default:
+		return
+	}
+
+	if err := h.yjsService.SaveUpdate(message.DocumentID, updateBytes); err != nil {
+		log.Printf("Failed to persist Yjs update: %v", err)
+	}
 }
 
 func generateColor(userID uuid.UUID) string {
