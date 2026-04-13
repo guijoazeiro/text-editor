@@ -21,7 +21,6 @@ func NewYjsHandler(yjsService *services.YjsService, permissionService *services.
 	}
 }
 
-// GetUpdates returns all Yjs updates for a document
 func (h *YjsHandler) GetUpdates(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -48,20 +47,17 @@ func (h *YjsHandler) GetUpdates(c *gin.Context) {
 		return
 	}
 
-	// Check permissions
 	if !h.permissionService.CanView(documentID, userUUID) {
 		response.Error(c, http.StatusForbidden, "Access denied", nil)
 		return
 	}
 
-	// Get updates
 	updates, err := h.yjsService.GetUpdates(documentID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch updates", err)
 		return
 	}
 
-	// Convert updates to response format
 	updateList := make([]map[string]interface{}, len(updates))
 	for i, update := range updates {
 		updateList[i] = map[string]interface{}{

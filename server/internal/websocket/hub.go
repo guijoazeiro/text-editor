@@ -48,6 +48,8 @@ func (h *Hub) Run() {
 
 			log.Printf("Client registered: user=%s doc=%s", client.UserName, client.DocumentID)
 
+			h.sendPersistedYjsState(client)
+
 			h.sendPresenceUpdate(client.DocumentID)
 
 			h.notifyUserJoined(client)
@@ -186,6 +188,43 @@ func (h *Hub) GetActiveUsers(documentID uuid.UUID) int {
 	return 0
 }
 
+func (h *Hub) sendPersistedYjsState(client *Client) {
+	if h.yjsService == nil {
+		return
+	}
+
+	updates, err := h.yjsService.GetUpdates(client.DocumentID)
+	if err != nil {
+		log.Printf("Failed to load persisted Yjs updates: %v", err)
+		return
+	}
+
+	if len(updates) == 0 {
+		return
+	}
+
+	for _, u := range updates {
+		msg := models.WSMessage{
+			Type: models.MessageTypeYjsSync,
+			Data: map[string]interface{}{
+				"update": u.Update,
+			},
+		}
+		data, err := json.Marshal(msg)
+		if err != nil {
+			continue
+		}
+		select {
+		case client.Send <- data:
+		default:
+			log.Printf("Client send buffer full while replaying Yjs state")
+			return
+		}
+	}
+
+	log.Printf("Sent %d persisted Yjs updates to user=%s doc=%s", len(updates), client.UserName, client.DocumentID)
+}
+
 func (h *Hub) tryPersistYjsUpdate(message *Message) {
 	if h.yjsService == nil {
 		return
@@ -217,6 +256,10 @@ func (h *Hub) tryPersistYjsUpdate(message *Message) {
 			}
 		}
 	default:
+		return
+	}
+
+	if len(updateBytes) == 0 {
 		return
 	}
 

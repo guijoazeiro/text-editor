@@ -5,7 +5,9 @@ export type MessageType =
   | "cursor"
   | "presence"
   | "sync"
-  | "awareness";
+  | "awareness"
+  | "yjs-sync"
+  | "yjs-awareness";
 
 export interface WSMessage {
   type: MessageType;
@@ -66,14 +68,14 @@ export class WebSocketClient {
 
         const messages = event.data
           .trim()
-          .split('\n')
-          .filter(msg => msg.trim().length > 0);
-        
-        messages.forEach(msgStr => {
+          .split("\n")
+          .filter((msg) => msg.trim().length > 0);
+
+        messages.forEach((msgStr) => {
           try {
             const trimmedMsg = msgStr.trim();
             if (!trimmedMsg) return;
-            
+
             const message: WSMessage = JSON.parse(trimmedMsg);
             const handlers = this.messageHandlers.get(message.type);
             if (handlers) {
@@ -129,7 +131,10 @@ export class WebSocketClient {
         console.error("Error sending WebSocket message:", error);
       }
     } else {
-      console.warn("WebSocket is not connected, message not sent:", message.type);
+      console.warn(
+        "WebSocket is not connected, message not sent:",
+        message.type,
+      );
     }
   }
 

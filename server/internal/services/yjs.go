@@ -48,7 +48,6 @@ func (s *YjsService) GetUpdatesSince(documentID uuid.UUID, sinceClock int64) ([]
 
 func (s *YjsService) CompactUpdates(documentID uuid.UUID, beforeClock int64, mergedUpdate []byte) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// Delete old updates
 		if err := tx.
 			Where("document_id = ? AND clock < ?", documentID, beforeClock).
 			Delete(&models.YjsUpdate{}).Error; err != nil {
