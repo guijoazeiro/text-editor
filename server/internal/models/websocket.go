@@ -5,13 +5,15 @@ import "github.com/google/uuid"
 type MessageType string
 
 const (
-	MessageTypeJoin      MessageType = "join"
-	MessageTypeLeave     MessageType = "leave"
-	MessageTypeEdit      MessageType = "edit"
-	MessageTypeCursor    MessageType = "cursor"
-	MessageTypePresence  MessageType = "presence"
-	MessageTypeSync      MessageType = "sync"
-	MessageTypeAwareness MessageType = "awareness"
+	MessageTypeJoin         MessageType = "join"
+	MessageTypeLeave        MessageType = "leave"
+	MessageTypeEdit         MessageType = "edit"
+	MessageTypeCursor       MessageType = "cursor"
+	MessageTypePresence     MessageType = "presence"
+	MessageTypeSync         MessageType = "sync"
+	MessageTypeAwareness    MessageType = "awareness"
+	MessageTypeYjsSync      MessageType = "yjs-sync"
+	MessageTypeYjsAwareness MessageType = "yjs-awareness"
 )
 
 type WSMessage struct {

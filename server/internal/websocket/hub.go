@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
+	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
 )
 
 type Message struct {
@@ -21,14 +22,16 @@ type Hub struct {
 	Register   chan *Client
 	Unregister chan *Client
 	mu         sync.RWMutex
+	yjsService *services.YjsService
 }
 
-func NewHub() *Hub {
+func NewHub(yjsService *services.YjsService) *Hub {
 	return &Hub{
 		Clients:    make(map[uuid.UUID]map[*Client]bool),
 		Broadcast:  make(chan *Message, 256),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
+		yjsService: yjsService,
 	}
 }
 
@@ -44,6 +47,8 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 
 			log.Printf("Client registered: user=%s doc=%s", client.UserName, client.DocumentID)
+
+			h.sendPersistedYjsState(client)
 
 			h.sendPresenceUpdate(client.DocumentID)
 
@@ -68,6 +73,8 @@ func (h *Hub) Run() {
 			h.notifyUserLeft(client)
 
 		case message := <-h.Broadcast:
+			h.tryPersistYjsUpdate(message)
+
 			h.mu.RLock()
 			clients := h.Clients[message.DocumentID]
 			h.mu.RUnlock()
@@ -179,6 +186,86 @@ func (h *Hub) GetActiveUsers(documentID uuid.UUID) int {
 		return len(clients)
 	}
 	return 0
+}
+
+func (h *Hub) sendPersistedYjsState(client *Client) {
+	if h.yjsService == nil {
+		return
+	}
+
+	updates, err := h.yjsService.GetUpdates(client.DocumentID)
+	if err != nil {
+		log.Printf("Failed to load persisted Yjs updates: %v", err)
+		return
+	}
+
+	if len(updates) == 0 {
+		return
+	}
+
+	for _, u := range updates {
+		msg := models.WSMessage{
+			Type: models.MessageTypeYjsSync,
+			Data: map[string]interface{}{
+				"update": u.Update,
+			},
+		}
+		data, err := json.Marshal(msg)
+		if err != nil {
+			continue
+		}
+		select {
+		case client.Send <- data:
+		default:
+			log.Printf("Client send buffer full while replaying Yjs state")
+			return
+		}
+	}
+
+	log.Printf("Sent %d persisted Yjs updates to user=%s doc=%s", len(updates), client.UserName, client.DocumentID)
+}
+
+func (h *Hub) tryPersistYjsUpdate(message *Message) {
+	if h.yjsService == nil {
+		return
+	}
+
+	var wsMsg models.WSMessage
+	if err := json.Unmarshal(message.Data, &wsMsg); err != nil {
+		return
+	}
+
+	if wsMsg.Type != models.MessageTypeYjsSync {
+		return
+	}
+
+	updateData, ok := wsMsg.Data["update"]
+	if !ok {
+		return
+	}
+
+	var updateBytes []byte
+	switch v := updateData.(type) {
+	case []byte:
+		updateBytes = v
+	case []interface{}:
+		updateBytes = make([]byte, len(v))
+		for i, val := range v {
+			if num, ok := val.(float64); ok {
+				updateBytes[i] = byte(num)
+			}
+		}
+	default:
+		return
+	}
+
+	if len(updateBytes) == 0 {
+		return
+	}
+
+	if err := h.yjsService.SaveUpdate(message.DocumentID, updateBytes); err != nil {
+		log.Printf("Failed to persist Yjs update: %v", err)
+	}
 }
 
 func generateColor(userID uuid.UUID) string {
