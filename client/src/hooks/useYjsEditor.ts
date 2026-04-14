@@ -3,14 +3,22 @@ import * as Y from "yjs";
 import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
 
+export interface RemoteUser {
+  clientId: number;
+  user: {
+    id: string;
+    name: string;
+    color: string;
+  };
+  cursor?: {
+    anchor: number;
+    head: number;
+  };
+}
+
 interface UseYjsEditorOptions {
   documentId: string;
   ws: WebSocketClient | null;
-  /**
-   * initialContent is used ONLY to seed the Yjs doc when it is completely
-   * empty (i.e. no peers are online and no updates were persisted on the
-   * server). As soon as the doc syncs with any peer the network state wins.
-   */
   initialContent?: string;
   userId?: string;
   userName?: string;
@@ -27,11 +35,11 @@ export const useYjsEditor = ({
 }: UseYjsEditorOptions) => {
   const [content, setContent] = useState(initialContent);
   const [synced, setSynced] = useState(false);
+  const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
 
   const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<YjsWebSocketProvider | null>(null);
   const ytextRef = useRef<Y.Text | null>(null);
-
   const seededRef = useRef(false);
 
   useEffect(() => {
@@ -63,17 +71,31 @@ export const useYjsEditor = ({
 
     provider.on("synced", () => {
       setSynced(true);
-
       setContent(ytext.toString());
     });
 
-    const observer = () => {
-      setContent(ytext.toString());
+    const textObserver = () => setContent(ytext.toString());
+    ytext.observe(textObserver);
+
+    const awarenessObserver = () => {
+      const states: RemoteUser[] = [];
+      provider.awareness.getStates().forEach((state, clientId) => {
+        if (clientId !== provider.awareness.clientID && state.user) {
+          states.push({
+            clientId,
+            user: state.user,
+            cursor: state.cursor,
+          });
+        }
+      });
+      setRemoteUsers(states);
     };
-    ytext.observe(observer);
+
+    provider.awareness.on("change", awarenessObserver);
 
     return () => {
-      ytext.unobserve(observer);
+      provider.awareness.off("change", awarenessObserver);
+      ytext.unobserve(textObserver);
       provider.destroy();
       ydoc.destroy();
       ydocRef.current = null;
@@ -81,6 +103,7 @@ export const useYjsEditor = ({
       ytextRef.current = null;
       seededRef.current = false;
       setSynced(false);
+      setRemoteUsers([]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, ws]);
@@ -88,32 +111,18 @@ export const useYjsEditor = ({
   const updateContent = useCallback((newContent: string) => {
     const ytext = ytextRef.current;
     if (!ytext) return;
-
     const current = ytext.toString();
     if (current === newContent) return;
-
     applyStringDiff(ytext, current, newContent);
-
     setContent(newContent);
   }, []);
 
-  const getAwarenessStates = useCallback(() => {
-    const provider = providerRef.current;
-    if (!provider) return [];
-
-    const states: Array<{ clientId: number; user: unknown; cursor: unknown }> =
-      [];
-    provider.awareness.getStates().forEach((state, clientId) => {
-      if (clientId !== provider.awareness.clientID && state.user) {
-        states.push({ clientId, user: state.user, cursor: state.cursor });
-      }
-    });
-    return states;
-  }, []);
-
   const updateCursor = useCallback(
-    (cursor: { line: number; column: number }) => {
-      providerRef.current?.setAwarenessField("cursor", cursor);
+    (selectionStart: number, selectionEnd: number) => {
+      providerRef.current?.setAwarenessField("cursor", {
+        anchor: selectionStart,
+        head: selectionEnd,
+      });
     },
     [],
   );
@@ -121,11 +130,11 @@ export const useYjsEditor = ({
   return {
     content,
     updateContent,
+    updateCursor,
     synced,
+    remoteUsers,
     ydoc: ydocRef.current,
     provider: providerRef.current,
-    getAwarenessStates,
-    updateCursor,
   };
 };
 
@@ -151,10 +160,8 @@ function applyStringDiff(ytext: Y.Text, oldStr: string, newStr: string) {
   const deleteCount = oldStr.length - prefixLen - oldSuffixLen;
   const insertText = newStr.slice(prefixLen, newStr.length - newSuffixLen);
 
-  ydoc: {
-    if (deleteCount > 0) ytext.delete(prefixLen, deleteCount);
-    if (insertText.length > 0) ytext.insert(prefixLen, insertText);
-  }
+  if (deleteCount > 0) ytext.delete(prefixLen, deleteCount);
+  if (insertText.length > 0) ytext.insert(prefixLen, insertText);
 }
 
 function generateColor(userId: string): string {
@@ -165,6 +172,8 @@ function generateColor(userId: string): string {
     "#EF4444",
     "#8B5CF6",
     "#EC4899",
+    "#14B8A6",
+    "#F97316",
   ];
   let hash = 0;
   for (let i = 0; i < userId.length; i++) hash += userId.charCodeAt(i);

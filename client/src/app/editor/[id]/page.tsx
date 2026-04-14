@@ -8,6 +8,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useYjsEditor } from "@/hooks/useYjsEditor";
 import Navbar from "@/components/Navbar";
 import UserPresence from "@/components/UserPresence";
+import RemoteCursors from "@/components/RemoteCursors";
 
 export default function EditorPage() {
   const params = useParams();
@@ -20,24 +21,26 @@ export default function EditorPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [permission, setPermission] = useState("");
-
   const [initialContent, setInitialContent] = useState<string | undefined>(
     undefined,
   );
   const documentFetchedRef = useRef(false);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { ws, isConnected, onlineUsers } = useWebSocket(
     documentId,
     token || "",
   );
 
-  const { content, updateContent, synced } = useYjsEditor({
-    documentId,
-    ws: initialContent !== undefined ? ws : null,
-    initialContent,
-    userId: user?.id,
-    userName: user?.name,
-  });
+  const { content, updateContent, updateCursor, synced, remoteUsers } =
+    useYjsEditor({
+      documentId,
+      ws: initialContent !== undefined ? ws : null,
+      initialContent,
+      userId: user?.id,
+      userName: user?.name,
+    });
 
   useEffect(() => {
     initialize();
@@ -58,10 +61,9 @@ export default function EditorPage() {
 
   const fetchDocument = async () => {
     try {
-      const response = await documentsAPI.get(documentId);
-      const doc = response.data.data.document;
-      const perm = response.data.data.permission;
-
+      const res = await documentsAPI.get(documentId);
+      const doc = res.data.data.document;
+      const perm = res.data.data.permission;
       setTitle(doc.title);
       setInitialContent(doc.content ?? "");
       setPermission(perm);
@@ -78,7 +80,7 @@ export default function EditorPage() {
     try {
       await documentsAPI.update(documentId, { title, content });
     } catch (err) {
-      console.error("Failed to save document:", err);
+      console.error("Failed to save:", err);
     } finally {
       setSaving(false);
     }
@@ -88,14 +90,19 @@ export default function EditorPage() {
     updateContent(e.target.value);
   };
 
+  const handleSelectionChange = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    updateCursor(ta.selectionStart, ta.selectionEnd);
+  };
+
   useEffect(() => {
     if (permission === "viewer" || !synced) return;
     const id = setInterval(() => {
-      if (content || title) {
+      if (content || title)
         documentsAPI
           .update(documentId, { title, content })
           .catch(console.error);
-      }
     }, 30_000);
     return () => clearInterval(id);
   }, [documentId, title, content, permission, synced]);
@@ -128,7 +135,6 @@ export default function EditorPage() {
               ← Back
             </button>
 
-            {/* WebSocket status */}
             <div className="flex items-center space-x-2">
               <div
                 className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-gray-400"}`}
@@ -138,7 +144,6 @@ export default function EditorPage() {
               </span>
             </div>
 
-            {/* Yjs sync status */}
             <div className="flex items-center space-x-2">
               <div
                 className={`w-2 h-2 rounded-full ${synced ? "bg-blue-500" : "bg-yellow-400"}`}
@@ -150,9 +155,11 @@ export default function EditorPage() {
           </div>
 
           <div className="flex items-center space-x-4">
-            {user && (
-              <UserPresence users={onlineUsers} currentUserId={user.id} />
-            )}
+            <UserPresence
+              users={onlineUsers}
+              remoteUsers={remoteUsers}
+              currentUserId={user?.id ?? ""}
+            />
 
             {canEdit && (
               <button
@@ -185,14 +192,29 @@ export default function EditorPage() {
             />
           </div>
 
-          <div className="p-6">
+          {/* Editor area — position:relative para o RemoteCursors se posicionar */}
+          <div className="p-6" style={{ position: "relative" }}>
             <textarea
+              ref={textareaRef}
               value={content}
               onChange={handleContentChange}
+              onSelect={handleSelectionChange}
+              onKeyUp={handleSelectionChange}
+              onMouseUp={handleSelectionChange}
               disabled={!canEdit}
               placeholder="Start typing… (CRDT-powered real-time collaboration)"
               className="w-full h-[calc(100vh-20rem)] text-gray-900 outline-none resize-none font-mono text-sm leading-relaxed placeholder-gray-400 disabled:bg-transparent"
+              style={{ position: "relative", zIndex: 1 }}
             />
+
+            {/* Cursors e seleções de outros usuários */}
+            {synced && remoteUsers.length > 0 && (
+              <RemoteCursors
+                textareaRef={textareaRef}
+                content={content}
+                remoteUsers={remoteUsers}
+              />
+            )}
           </div>
         </div>
 

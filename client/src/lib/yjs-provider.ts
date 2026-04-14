@@ -6,21 +6,7 @@ import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { WebSocketClient, WSMessage } from "./websocket";
 
-/**
- * YjsWebSocketProvider
- *
- * Connects a Yjs document to the Go WebSocket relay.
- *
- * Sync protocol (peer-to-peer via server relay):
- *   1. On connect → send SyncStep1 (our state vector) to all peers
- *   2. Peer receives SyncStep1 → responds with SyncStep2 (diff since our vector)
- *   3. We receive SyncStep2 → apply to our doc, we're now in sync
- *   4. Any subsequent local change → send Update message to all peers
- *   5. On reconnect → repeat from step 1
- *
- * Additionally, when we first connect the server sends us persisted updates
- * (type=yjs-sync, subtype=update) which we apply directly.
- */
+
 export class YjsWebSocketProvider extends Observable<string> {
   public awareness: awarenessProtocol.Awareness;
   private _synced = false;
