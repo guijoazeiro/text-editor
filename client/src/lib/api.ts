@@ -4,23 +4,16 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 export const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
 });
 
 api.interceptors.request.use((config) => {
   const authStorage = localStorage.getItem('auth-storage');
   if (authStorage) {
     try {
-      const parsedStorage = JSON.parse(authStorage);
-      const token = parsedStorage?.state?.token;
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch (error) {
-      console.error('Error parsing auth storage:', error);
-    }
+      const token = JSON.parse(authStorage)?.state?.token;
+      if (token) config.headers.Authorization = `Bearer ${token}`;
+    } catch { /* ignore */ }
   }
   return config;
 });
@@ -36,9 +29,9 @@ export const authAPI = {
 export const documentsAPI = {
   list: () => api.get('/api/documents'),
   get: (id: string) => api.get(`/api/documents/${id}`),
-  create: (data: { title: string; content: string }) =>
+  create: (data: { title: string; content: string; content_format?: string }) =>
     api.post('/api/documents', data),
-  update: (id: string, data: { title?: string; content?: string }) =>
+  update: (id: string, data: { title?: string; content?: string; content_format?: string }) =>
     api.put(`/api/documents/${id}`, data),
   delete: (id: string) => api.delete(`/api/documents/${id}`),
   getActiveUsers: (id: string) => api.get(`/api/documents/${id}/active-users`),

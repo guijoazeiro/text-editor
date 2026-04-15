@@ -2,13 +2,28 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
+import Underline from "@tiptap/extension-underline";
+import Placeholder from "@tiptap/extension-placeholder";
+import { EditorContent } from "@tiptap/react";
 import { useAuthStore } from "@/store/authStore";
 import { documentsAPI } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useYjsEditor } from "@/hooks/useYjsEditor";
 import Navbar from "@/components/Navbar";
+import EditorToolbar from "@/components/EditorToolbar";
 import UserPresence from "@/components/UserPresence";
-import RemoteCursors from "@/components/RemoteCursors";
+import * as Y from "yjs";
+
+interface DocMeta {
+  title: string;
+  permission: string;
+  content_format: string;
+  content_plain?: string;
+}
 
 export default function EditorPage() {
   const params = useParams();
@@ -17,30 +32,70 @@ export default function EditorPage() {
   const { isAuthenticated, initialize, user, token, isHydrated } =
     useAuthStore();
 
-  const [title, setTitle] = useState("");
+  const [meta, setMeta] = useState<DocMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [permission, setPermission] = useState("");
-  const [initialContent, setInitialContent] = useState<string | undefined>(
-    undefined,
-  );
+  const [title, setTitle] = useState("");
   const documentFetchedRef = useRef(false);
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { ws, isConnected, onlineUsers } = useWebSocket(
     documentId,
     token || "",
   );
 
-  const { content, updateContent, updateCursor, synced, remoteUsers } =
-    useYjsEditor({
-      documentId,
-      ws: initialContent !== undefined ? ws : null,
-      initialContent,
-      userId: user?.id,
-      userName: user?.name,
-    });
+  const { ydoc, provider, synced, remoteUsers } = useYjsEditor({
+    documentId,
+    ws: meta !== null ? ws : null,
+    userId: user?.id,
+    userName: user?.name,
+  });
+
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit.configure({ history: false }),
+        Underline,
+        Placeholder.configure({
+          placeholder: "Start typing… (CRDT-powered real-time collaboration)",
+          emptyEditorClass: "is-editor-empty",
+        }),
+        ...(ydoc
+          ? [
+              Collaboration.configure({ document: ydoc, field: "content" }),
+              CollaborationCursor.configure({
+                provider: provider!,
+                user: {
+                  name: user?.name ?? "Anonymous",
+                  color: generateColor(user?.id ?? ""),
+                },
+              }),
+            ]
+          : []),
+      ],
+      editable: false,
+      editorProps: {
+        attributes: { class: "tiptap-editor", spellcheck: "false" },
+      },
+      immediatelyRender: false,
+    },
+    [ydoc],
+  );
+
+  useEffect(() => {
+    if (!editor || !meta) return;
+    const canEdit = meta.permission === "owner" || meta.permission === "editor";
+    editor.setEditable(canEdit && synced);
+  }, [editor, synced, meta]);
+
+  useEffect(() => {
+    if (!ydoc || !meta?.content_plain || meta.content_format !== "text") return;
+    const fragment = ydoc.getXmlFragment("content");
+    if (fragment.length > 0) return;
+    const paragraph = new Y.XmlElement("paragraph");
+    const text = new Y.XmlText(meta.content_plain);
+    paragraph.insert(0, [text]);
+    fragment.insert(0, [paragraph]);
+  }, [ydoc, meta]);
 
   useEffect(() => {
     initialize();
@@ -63,10 +118,15 @@ export default function EditorPage() {
     try {
       const res = await documentsAPI.get(documentId);
       const doc = res.data.data.document;
+      console.log(doc);
       const perm = res.data.data.permission;
       setTitle(doc.title);
-      setInitialContent(doc.content ?? "");
-      setPermission(perm);
+      setMeta({
+        title: doc.title,
+        permission: perm,
+        content_format: doc.content_format ?? "text",
+        content_plain: doc.content,
+      });
     } catch {
       router.push("/dashboard");
     } finally {
@@ -75,10 +135,15 @@ export default function EditorPage() {
   };
 
   const handleSave = async () => {
-    if (permission === "viewer") return;
+    if (!meta || meta.permission === "viewer" || !editor) return;
     setSaving(true);
     try {
-      await documentsAPI.update(documentId, { title, content });
+      const json = JSON.stringify(editor.getJSON());
+      await documentsAPI.update(documentId, {
+        title,
+        content: json,
+        content_format: "tiptap",
+      });
     } catch (err) {
       console.error("Failed to save:", err);
     } finally {
@@ -86,26 +151,20 @@ export default function EditorPage() {
     }
   };
 
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    updateContent(e.target.value);
-  };
-
-  const handleSelectionChange = () => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    updateCursor(ta.selectionStart, ta.selectionEnd);
-  };
-
   useEffect(() => {
-    if (permission === "viewer" || !synced) return;
+    if (!meta || meta.permission === "viewer" || !synced || !editor) return;
     const id = setInterval(() => {
-      if (content || title)
-        documentsAPI
-          .update(documentId, { title, content })
-          .catch(console.error);
+      const json = JSON.stringify(editor.getJSON());
+      documentsAPI
+        .update(documentId, {
+          title,
+          content: json,
+          content_format: "tiptap",
+        })
+        .catch(console.error);
     }, 30_000);
     return () => clearInterval(id);
-  }, [documentId, title, content, permission, synced]);
+  }, [documentId, title, synced, meta, editor]);
 
   if (loading) {
     return (
@@ -118,14 +177,13 @@ export default function EditorPage() {
     );
   }
 
-  const canEdit = permission === "owner" || permission === "editor";
+  const canEdit = meta?.permission === "owner" || meta?.permission === "editor";
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-4">
             <button
@@ -164,7 +222,7 @@ export default function EditorPage() {
             {canEdit && (
               <button
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || !synced}
                 className="px-6 py-2 bg-[#1479b0] text-white rounded-lg font-medium hover:bg-[#0f5f8d] transition disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save"}
@@ -181,6 +239,7 @@ export default function EditorPage() {
 
         {/* Document */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          {/* Title */}
           <div className="p-6 border-b border-gray-200">
             <input
               type="text"
@@ -192,36 +251,19 @@ export default function EditorPage() {
             />
           </div>
 
-          {/* Editor area — position:relative para o RemoteCursors se posicionar */}
-          <div className="p-6" style={{ position: "relative" }}>
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={handleContentChange}
-              onSelect={handleSelectionChange}
-              onKeyUp={handleSelectionChange}
-              onMouseUp={handleSelectionChange}
-              disabled={!canEdit}
-              placeholder="Start typing… (CRDT-powered real-time collaboration)"
-              className="w-full h-[calc(100vh-20rem)] text-gray-900 outline-none resize-none font-mono text-sm leading-relaxed placeholder-gray-400 disabled:bg-transparent"
-              style={{ position: "relative", zIndex: 1 }}
-            />
+          {canEdit && (
+            <EditorToolbar editor={editor ?? null} disabled={!synced} />
+          )}
 
-            {/* Cursors e seleções de outros usuários */}
-            {synced && remoteUsers.length > 0 && (
-              <RemoteCursors
-                textareaRef={textareaRef}
-                content={content}
-                remoteUsers={remoteUsers}
-              />
-            )}
+          <div className="p-6">
+            <EditorContent editor={editor} />
           </div>
         </div>
 
         <div className="mt-4 text-center text-xs text-gray-500 space-y-1">
-          {permission && (
+          {meta?.permission && (
             <div>
-              You have <span className="font-medium">{permission}</span>{" "}
+              You have <span className="font-medium">{meta.permission}</span>{" "}
               permission
             </div>
           )}
@@ -234,4 +276,20 @@ export default function EditorPage() {
       </div>
     </div>
   );
+}
+
+function generateColor(userId: string): string {
+  const colors = [
+    "#3B82F6",
+    "#10B981",
+    "#F59E0B",
+    "#EF4444",
+    "#8B5CF6",
+    "#EC4899",
+    "#14B8A6",
+    "#F97316",
+  ];
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) hash += userId.charCodeAt(i);
+  return colors[hash % colors.length];
 }
