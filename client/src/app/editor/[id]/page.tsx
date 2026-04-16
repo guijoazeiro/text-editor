@@ -2,13 +2,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useEditor } from "@tiptap/react";
+import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
-import { EditorContent } from "@tiptap/react";
+import * as awarenessProtocol from "y-protocols/awareness";
 import { useAuthStore } from "@/store/authStore";
 import { documentsAPI } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -16,7 +16,6 @@ import { useYjsEditor } from "@/hooks/useYjsEditor";
 import Navbar from "@/components/Navbar";
 import EditorToolbar from "@/components/EditorToolbar";
 import UserPresence from "@/components/UserPresence";
-import * as Y from "yjs";
 
 interface DocMeta {
   title: string;
@@ -37,6 +36,10 @@ export default function EditorPage() {
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
   const documentFetchedRef = useRef(false);
+  const seededRef = useRef(false);
+
+  const userColor = generateColor(user?.id ?? "");
+  const userName = user?.name ?? "Anonymous";
 
   const { ws, isConnected, onlineUsers } = useWebSocket(
     documentId,
@@ -48,7 +51,12 @@ export default function EditorPage() {
     ws: meta !== null ? ws : null,
     userId: user?.id,
     userName: user?.name,
+    userColor,
   });
+
+  // Awareness placeholder — tem a interface completa que o CollaborationCursor precisa.
+  // Será substituído pelo awareness real quando o provider conectar.
+  const placeholderAwarenessRef = useRef(new awarenessProtocol.Awareness(ydoc));
 
   const editor = useEditor(
     {
@@ -59,18 +67,13 @@ export default function EditorPage() {
           placeholder: "Start typing… (CRDT-powered real-time collaboration)",
           emptyEditorClass: "is-editor-empty",
         }),
-        ...(ydoc
-          ? [
-              Collaboration.configure({ document: ydoc, field: "content" }),
-              CollaborationCursor.configure({
-                provider: provider!,
-                user: {
-                  name: user?.name ?? "Anonymous",
-                  color: generateColor(user?.id ?? ""),
-                },
-              }),
-            ]
-          : []),
+        Collaboration.configure({ document: ydoc, field: "content" }),
+        // Passa o awareness placeholder — CollaborationCursor inicializa sem erros.
+        // Quando o provider real chegar, o awareness é atualizado via useEffect abaixo.
+        CollaborationCursor.configure({
+          provider: { awareness: placeholderAwarenessRef.current },
+          user: { name: userName, color: userColor },
+        }),
       ],
       editable: false,
       editorProps: {
@@ -78,24 +81,63 @@ export default function EditorPage() {
       },
       immediatelyRender: false,
     },
-    [ydoc],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
 
+  // Quando o provider real estiver disponível, trocar o awareness no CollaborationCursor
+  useEffect(() => {
+    if (!editor || !provider) return;
+
+    const collabCursorExt = editor.extensionManager.extensions.find(
+      (ext) => ext.name === "collaborationCursor",
+    );
+    if (collabCursorExt) {
+      collabCursorExt.options.provider = { awareness: provider.awareness };
+      // Atualizar o usuário local no awareness real
+      provider.setAwarenessField("user", {
+        name: userName,
+        color: userColor,
+      });
+    }
+  }, [editor, provider, userName, userColor]);
+
+  // Habilitar edição após sync
   useEffect(() => {
     if (!editor || !meta) return;
     const canEdit = meta.permission === "owner" || meta.permission === "editor";
     editor.setEditable(canEdit && synced);
   }, [editor, synced, meta]);
 
+  // Seed de conteúdo legado
   useEffect(() => {
-    if (!ydoc || !meta?.content_plain || meta.content_format !== "text") return;
+    if (!synced || !editor || !meta || seededRef.current) return;
+
     const fragment = ydoc.getXmlFragment("content");
-    if (fragment.length > 0) return;
-    const paragraph = new Y.XmlElement("paragraph");
-    const text = new Y.XmlText(meta.content_plain);
-    paragraph.insert(0, [text]);
-    fragment.insert(0, [paragraph]);
-  }, [ydoc, meta]);
+    if (fragment.length > 0) {
+      seededRef.current = true;
+      return;
+    }
+
+    if (meta.content_plain && meta.content_plain.trim()) {
+      seededRef.current = true;
+      if (meta.content_format === "tiptap") {
+        try {
+          const parsed = JSON.parse(meta.content_plain);
+          editor.commands.setContent(parsed, false);
+        } catch {
+          editor.commands.setContent(`<p>${meta.content_plain}</p>`, false);
+        }
+      } else {
+        editor.commands.setContent(
+          `<p>${meta.content_plain.replace(/\n/g, "</p><p>")}</p>`,
+          false,
+        );
+      }
+    } else {
+      seededRef.current = true;
+    }
+  }, [synced, editor, meta, ydoc]);
 
   useEffect(() => {
     initialize();
@@ -118,7 +160,6 @@ export default function EditorPage() {
     try {
       const res = await documentsAPI.get(documentId);
       const doc = res.data.data.document;
-      console.log(doc);
       const perm = res.data.data.permission;
       setTitle(doc.title);
       setMeta({
@@ -156,15 +197,19 @@ export default function EditorPage() {
     const id = setInterval(() => {
       const json = JSON.stringify(editor.getJSON());
       documentsAPI
-        .update(documentId, {
-          title,
-          content: json,
-          content_format: "tiptap",
-        })
+        .update(documentId, { title, content: json, content_format: "tiptap" })
         .catch(console.error);
     }, 30_000);
     return () => clearInterval(id);
   }, [documentId, title, synced, meta, editor]);
+
+  useEffect(() => {
+    return () => {
+      placeholderAwarenessRef.current.destroy();
+      editor?.destroy();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (
@@ -237,9 +282,7 @@ export default function EditorPage() {
           </div>
         </div>
 
-        {/* Document */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          {/* Title */}
           <div className="p-6 border-b border-gray-200">
             <input
               type="text"

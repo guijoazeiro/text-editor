@@ -6,10 +6,11 @@ import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { WebSocketClient, WSMessage } from "./websocket";
 
-
 export class YjsWebSocketProvider extends Observable<string> {
   public awareness: awarenessProtocol.Awareness;
   private _synced = false;
+  // Timer para marcar synced mesmo sem resposta (doc novo sem peers)
+  private _syncTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private documentId: string,
@@ -22,6 +23,31 @@ export class YjsWebSocketProvider extends Observable<string> {
     this._setupDocumentListeners();
     this._setupWebSocketListeners();
     this._setupAwarenessListeners();
+
+    // Se o WS já estava conectado quando o provider foi criado,
+    // o onConnect não vai disparar novamente — iniciar sync agora.
+    if (this.ws.isConnected()) {
+      console.log("[Yjs] WS already connected → sending SyncStep1 immediately");
+      this._startSync();
+    }
+  }
+
+  private _startSync() {
+    this._synced = false;
+    this._sendSyncStep1();
+
+    // Se não receber SyncStep2 em 2s, o doc está vazio (sem peers, sem updates).
+    // Marcar como synced para desbloquear o editor.
+    if (this._syncTimeout) clearTimeout(this._syncTimeout);
+    this._syncTimeout = setTimeout(() => {
+      if (!this._synced) {
+        console.log(
+          "[Yjs] No SyncStep2 received — doc is empty, marking synced",
+        );
+        this._synced = true;
+        this.emit("synced", [true]);
+      }
+    }, 2000);
   }
 
   private _setupDocumentListeners() {
@@ -34,8 +60,7 @@ export class YjsWebSocketProvider extends Observable<string> {
   private _setupWebSocketListeners() {
     this.ws.onConnect(() => {
       console.log("[Yjs] WebSocket connected → sending SyncStep1");
-      this._synced = false;
-      this._sendSyncStep1();
+      this._startSync();
     });
 
     this.ws.on("yjs-sync", (message: WSMessage) => {
@@ -128,6 +153,10 @@ export class YjsWebSocketProvider extends Observable<string> {
         }
         case syncProtocol.messageYjsSyncStep2: {
           syncProtocol.readSyncStep2(decoder, this.doc, this);
+          if (this._syncTimeout) {
+            clearTimeout(this._syncTimeout);
+            this._syncTimeout = null;
+          }
           if (!this._synced) {
             this._synced = true;
             this.emit("synced", [true]);
@@ -138,6 +167,11 @@ export class YjsWebSocketProvider extends Observable<string> {
         case syncProtocol.messageYjsUpdate: {
           const update = decoding.readVarUint8Array(decoder);
           Y.applyUpdate(this.doc, update, this);
+          // Update recebido = há conteúdo persistido, cancelar timeout
+          if (this._syncTimeout) {
+            clearTimeout(this._syncTimeout);
+            this._syncTimeout = null;
+          }
           if (!this._synced) {
             this._synced = true;
             this.emit("synced", [true]);
@@ -180,6 +214,7 @@ export class YjsWebSocketProvider extends Observable<string> {
   }
 
   public destroy() {
+    if (this._syncTimeout) clearTimeout(this._syncTimeout);
     this.awareness.destroy();
     super.destroy();
   }

@@ -1,16 +1,19 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import * as Y from "yjs";
 import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
 
 export interface RemoteUser {
   clientId: number;
-  user: {
-    id: string;
-    name: string;
-    color: string;
-  };
+  user: { id: string; name: string; color: string };
   cursor?: unknown;
+}
+
+export interface YjsEditorState {
+  ydoc: Y.Doc;
+  provider: YjsWebSocketProvider | null;
+  synced: boolean;
+  remoteUsers: RemoteUser[];
 }
 
 interface UseYjsEditorOptions {
@@ -19,13 +22,6 @@ interface UseYjsEditorOptions {
   userId?: string;
   userName?: string;
   userColor?: string;
-}
-
-export interface YjsEditorState {
-  ydoc: Y.Doc | null;
-  provider: YjsWebSocketProvider | null;
-  synced: boolean;
-  remoteUsers: RemoteUser[];
 }
 
 export const useYjsEditor = ({
@@ -37,15 +33,18 @@ export const useYjsEditor = ({
 }: UseYjsEditorOptions): YjsEditorState => {
   const [synced, setSynced] = useState(false);
   const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
-
-  const ydocRef = useRef<Y.Doc | null>(null);
   const providerRef = useRef<YjsWebSocketProvider | null>(null);
+
+  const ydoc = useMemo(() => new Y.Doc(), []);
+
+  useEffect(() => {
+    return () => {
+      ydoc.destroy();
+    };
+  }, [ydoc]);
 
   useEffect(() => {
     if (!ws || !documentId) return;
-
-    const ydoc = new Y.Doc();
-    ydocRef.current = ydoc;
 
     const provider = new YjsWebSocketProvider(documentId, ydoc, ws);
     providerRef.current = provider;
@@ -69,14 +68,11 @@ export const useYjsEditor = ({
       });
       setRemoteUsers(states);
     };
-
     provider.awareness.on("change", awarenessObserver);
 
     return () => {
       provider.awareness.off("change", awarenessObserver);
       provider.destroy();
-      ydoc.destroy();
-      ydocRef.current = null;
       providerRef.current = null;
       setSynced(false);
       setRemoteUsers([]);
@@ -85,14 +81,12 @@ export const useYjsEditor = ({
   }, [documentId, ws]);
 
   return {
-    ydoc: ydocRef.current,
+    ydoc,
     provider: providerRef.current,
     synced,
     remoteUsers,
   };
 };
-
-export const useYdoc = (state: YjsEditorState) => state.ydoc;
 
 function generateColor(userId: string): string {
   const colors = [
