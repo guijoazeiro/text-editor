@@ -9,7 +9,10 @@ import { WebSocketClient, WSMessage } from "./websocket";
 export class YjsWebSocketProvider extends Observable<string> {
   public awareness: awarenessProtocol.Awareness;
   private _synced = false;
-  // Timer para marcar synced mesmo sem resposta (doc novo sem peers)
+
+  private _initReceived = false;
+  private _initTimeout: ReturnType<typeof setTimeout> | null = null;
+
   private _syncTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -24,26 +27,64 @@ export class YjsWebSocketProvider extends Observable<string> {
     this._setupWebSocketListeners();
     this._setupAwarenessListeners();
 
-    // Se o WS já estava conectado quando o provider foi criado,
-    // o onConnect não vai disparar novamente — iniciar sync agora.
     if (this.ws.isConnected()) {
-      console.log("[Yjs] WS already connected → sending SyncStep1 immediately");
-      this._startSync();
+      this._onConnected();
     }
   }
 
-  private _startSync() {
+  private _onConnected() {
     this._synced = false;
+    this._initReceived = false;
+
+    if (this._initTimeout) clearTimeout(this._initTimeout);
+    this._initTimeout = setTimeout(() => {
+      this._initTimeout = null;
+      if (!this._initReceived) {
+        console.log("[Yjs] No init snapshot → doc is new, starting sync");
+        this._startPeerSync();
+      }
+    }, 400);
+  }
+
+  private _handleYjsInit(data: unknown) {
+    if (!data || typeof data !== "object") return;
+    const payload = data as Record<string, unknown>;
+
+    this._initReceived = true;
+    if (this._initTimeout) {
+      clearTimeout(this._initTimeout);
+      this._initTimeout = null;
+    }
+
+    const rawBatch = payload["updates"];
+    if (rawBatch && Array.isArray(rawBatch) && rawBatch.length > 0) {
+      try {
+        const arrays = (rawBatch as unknown[]).map((item) =>
+          Array.isArray(item)
+            ? new Uint8Array(item as number[])
+            : (item as Uint8Array),
+        );
+        const merged = Y.mergeUpdates(arrays);
+        Y.applyUpdate(this.doc, merged, this);
+        console.log(
+          `[Yjs] Applied init snapshot (${arrays.length} updates merged)`,
+        );
+      } catch (err) {
+        console.error("[Yjs] Error applying init snapshot:", err);
+      }
+    }
+
+    this._startPeerSync();
+  }
+
+  private _startPeerSync() {
     this._sendSyncStep1();
 
-    // Se não receber SyncStep2 em 2s, o doc está vazio (sem peers, sem updates).
-    // Marcar como synced para desbloquear o editor.
     if (this._syncTimeout) clearTimeout(this._syncTimeout);
     this._syncTimeout = setTimeout(() => {
+      this._syncTimeout = null;
       if (!this._synced) {
-        console.log(
-          "[Yjs] No SyncStep2 received — doc is empty, marking synced",
-        );
+        console.log("[Yjs] No SyncStep2 received — marking synced (no peers)");
         this._synced = true;
         this.emit("synced", [true]);
       }
@@ -59,8 +100,12 @@ export class YjsWebSocketProvider extends Observable<string> {
 
   private _setupWebSocketListeners() {
     this.ws.onConnect(() => {
-      console.log("[Yjs] WebSocket connected → sending SyncStep1");
-      this._startSync();
+      console.log("[Yjs] WebSocket connected");
+      this._onConnected();
+    });
+
+    this.ws.on("yjs-init", (message: WSMessage) => {
+      this._handleYjsInit(message.data);
     });
 
     this.ws.on("yjs-sync", (message: WSMessage) => {
@@ -84,8 +129,7 @@ export class YjsWebSocketProvider extends Observable<string> {
         updated: number[];
         removed: number[];
       }) => {
-        const changed = [...added, ...updated, ...removed];
-        this._sendAwarenessUpdate(changed);
+        this._sendAwarenessUpdate([...added, ...updated, ...removed]);
       },
     );
   }
@@ -126,7 +170,9 @@ export class YjsWebSocketProvider extends Observable<string> {
 
   private _handleSyncMessage(data: unknown) {
     if (!data || typeof data !== "object") return;
-    const raw = (data as Record<string, unknown>)["update"];
+    const payload = data as Record<string, unknown>;
+
+    const raw = payload["update"];
     if (!raw) return;
 
     let bytes: Uint8Array;
@@ -135,7 +181,7 @@ export class YjsWebSocketProvider extends Observable<string> {
     } else if (Array.isArray(raw)) {
       bytes = new Uint8Array(raw as number[]);
     } else {
-      console.warn("[Yjs] unexpected update format", typeof raw);
+      console.warn("[Yjs] unexpected update format:", typeof raw);
       return;
     }
 
@@ -160,14 +206,13 @@ export class YjsWebSocketProvider extends Observable<string> {
           if (!this._synced) {
             this._synced = true;
             this.emit("synced", [true]);
-            console.log("[Yjs] Document synced via SyncStep2");
+            console.log("[Yjs] Synced via SyncStep2");
           }
           break;
         }
         case syncProtocol.messageYjsUpdate: {
           const update = decoding.readVarUint8Array(decoder);
           Y.applyUpdate(this.doc, update, this);
-          // Update recebido = há conteúdo persistido, cancelar timeout
           if (this._syncTimeout) {
             clearTimeout(this._syncTimeout);
             this._syncTimeout = null;
@@ -175,12 +220,12 @@ export class YjsWebSocketProvider extends Observable<string> {
           if (!this._synced) {
             this._synced = true;
             this.emit("synced", [true]);
-            console.log("[Yjs] Document synced via replayed update");
+            console.log("[Yjs] Synced via incremental update");
           }
           break;
         }
         default:
-          console.warn("[Yjs] unknown sync message type", msgType);
+          console.warn("[Yjs] unknown sync message type:", msgType);
       }
     } catch (err) {
       console.error("[Yjs] Error handling sync message:", err);
@@ -214,6 +259,7 @@ export class YjsWebSocketProvider extends Observable<string> {
   }
 
   public destroy() {
+    if (this._initTimeout) clearTimeout(this._initTimeout);
     if (this._syncTimeout) clearTimeout(this._syncTimeout);
     this.awareness.destroy();
     super.destroy();

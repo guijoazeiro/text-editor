@@ -7,7 +7,8 @@ export type MessageType =
   | "sync"
   | "awareness"
   | "yjs-sync"
-  | "yjs-awareness";
+  | "yjs-awareness"
+  | "yjs-init";
 
 export interface WSMessage {
   type: MessageType;

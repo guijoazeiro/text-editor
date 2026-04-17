@@ -8,7 +8,6 @@ import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
-import * as awarenessProtocol from "y-protocols/awareness";
 import { useAuthStore } from "@/store/authStore";
 import { documentsAPI } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -54,10 +53,9 @@ export default function EditorPage() {
     userColor,
   });
 
-  // Awareness placeholder — tem a interface completa que o CollaborationCursor precisa.
-  // Será substituído pelo awareness real quando o provider conectar.
-  const placeholderAwarenessRef = useRef(new awarenessProtocol.Awareness(ydoc));
-
+  // The editor is only created once the real Yjs provider is ready.
+  // This guarantees CollaborationCursor gets the real awareness from the start,
+  // so remote cursors work correctly without any placeholder-swap hacks.
   const editor = useEditor(
     {
       extensions: [
@@ -68,12 +66,14 @@ export default function EditorPage() {
           emptyEditorClass: "is-editor-empty",
         }),
         Collaboration.configure({ document: ydoc, field: "content" }),
-        // Passa o awareness placeholder — CollaborationCursor inicializa sem erros.
-        // Quando o provider real chegar, o awareness é atualizado via useEffect abaixo.
-        CollaborationCursor.configure({
-          provider: { awareness: placeholderAwarenessRef.current },
-          user: { name: userName, color: userColor },
-        }),
+        ...(provider
+          ? [
+              CollaborationCursor.configure({
+                provider: provider,
+                user: { name: userName, color: userColor },
+              }),
+            ]
+          : []),
       ],
       editable: false,
       editorProps: {
@@ -81,35 +81,20 @@ export default function EditorPage() {
       },
       immediatelyRender: false,
     },
+    // Re-create the editor when the provider becomes available so that
+    // CollaborationCursor is initialised with the real awareness instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [!!provider],
   );
 
-  // Quando o provider real estiver disponível, trocar o awareness no CollaborationCursor
-  useEffect(() => {
-    if (!editor || !provider) return;
-
-    const collabCursorExt = editor.extensionManager.extensions.find(
-      (ext) => ext.name === "collaborationCursor",
-    );
-    if (collabCursorExt) {
-      collabCursorExt.options.provider = { awareness: provider.awareness };
-      // Atualizar o usuário local no awareness real
-      provider.setAwarenessField("user", {
-        name: userName,
-        color: userColor,
-      });
-    }
-  }, [editor, provider, userName, userColor]);
-
-  // Habilitar edição após sync
+  // Enable editing after sync
   useEffect(() => {
     if (!editor || !meta) return;
     const canEdit = meta.permission === "owner" || meta.permission === "editor";
     editor.setEditable(canEdit && synced);
   }, [editor, synced, meta]);
 
-  // Seed de conteúdo legado
+  // Seed legacy plain-text content into the Yjs doc (runs once after sync)
   useEffect(() => {
     if (!synced || !editor || !meta || seededRef.current) return;
 
@@ -205,7 +190,6 @@ export default function EditorPage() {
 
   useEffect(() => {
     return () => {
-      placeholderAwarenessRef.current.destroy();
       editor?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -203,26 +203,30 @@ func (h *Hub) sendPersistedYjsState(client *Client) {
 		return
 	}
 
-	for _, u := range updates {
-		msg := models.WSMessage{
-			Type: models.MessageTypeYjsSync,
-			Data: map[string]interface{}{
-				"update": u.Update,
-			},
-		}
-		data, err := json.Marshal(msg)
-		if err != nil {
-			continue
-		}
-		select {
-		case client.Send <- data:
-		default:
-			log.Printf("Client send buffer full while replaying Yjs state")
-			return
-		}
+	allUpdates := make([][]byte, len(updates))
+	for i, u := range updates {
+		allUpdates[i] = u.Update
 	}
 
-	log.Printf("Sent %d persisted Yjs updates to user=%s doc=%s", len(updates), client.UserName, client.DocumentID)
+	msg := models.WSMessage{
+		Type: models.MessageTypeYjsInit,
+		Data: map[string]interface{}{
+			"updates": allUpdates,
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Failed to marshal Yjs snapshot: %v", err)
+		return
+	}
+
+	select {
+	case client.Send <- data:
+		log.Printf("Sent Yjs snapshot (%d updates merged) to user=%s doc=%s", len(updates), client.UserName, client.DocumentID)
+	default:
+		log.Printf("Client send buffer full while sending Yjs snapshot")
+	}
 }
 
 func (h *Hub) tryPersistYjsUpdate(message *Message) {
