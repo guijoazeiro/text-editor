@@ -1,7 +1,9 @@
 package websocket
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 
@@ -11,9 +13,10 @@ import (
 )
 
 type Message struct {
-	DocumentID uuid.UUID
-	Data       []byte
-	SenderID   uuid.UUID
+	DocumentID   uuid.UUID
+	Data         []byte
+	SenderID     uuid.UUID
+	SenderConnID uuid.UUID
 }
 
 type Hub struct {
@@ -80,7 +83,7 @@ func (h *Hub) Run() {
 			h.mu.RUnlock()
 
 			for client := range clients {
-				if client.UserID == message.SenderID {
+				if client.ID == message.SenderConnID {
 					continue
 				}
 
@@ -203,26 +206,38 @@ func (h *Hub) sendPersistedYjsState(client *Client) {
 		return
 	}
 
+	allUpdates := make([][]byte, 0, len(updates))
 	for _, u := range updates {
-		msg := models.WSMessage{
-			Type: models.MessageTypeYjsSync,
-			Data: map[string]interface{}{
-				"update": u.Update,
-			},
-		}
-		data, err := json.Marshal(msg)
-		if err != nil {
-			continue
-		}
-		select {
-		case client.Send <- data:
-		default:
-			log.Printf("Client send buffer full while replaying Yjs state")
-			return
+		if len(u.Update) > 0 {
+			allUpdates = append(allUpdates, u.Update)
 		}
 	}
 
-	log.Printf("Sent %d persisted Yjs updates to user=%s doc=%s", len(updates), client.UserName, client.DocumentID)
+	if len(allUpdates) == 0 {
+		log.Printf("All persisted updates were invalid for doc=%s", client.DocumentID)
+		return
+	}
+
+	msg := models.WSMessage{
+		Type: models.MessageTypeYjsInit,
+		Data: map[string]interface{}{
+			"updates": allUpdates,
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Failed to marshal Yjs snapshot: %v", err)
+		return
+	}
+
+	select {
+	case client.Send <- data:
+		log.Printf("Sent Yjs snapshot (%d updates, %d valid) to user=%s doc=%s",
+			len(updates), len(allUpdates), client.UserName, client.DocumentID)
+	default:
+		log.Printf("Client send buffer full while sending Yjs snapshot")
+	}
 }
 
 func (h *Hub) tryPersistYjsUpdate(message *Message) {
@@ -263,9 +278,67 @@ func (h *Hub) tryPersistYjsUpdate(message *Message) {
 		return
 	}
 
-	if err := h.yjsService.SaveUpdate(message.DocumentID, updateBytes); err != nil {
+	msgType := updateBytes[0]
+	if msgType != 2 {
+		return
+	}
+
+	rawUpdate, err := stripSyncEnvelope(updateBytes)
+	if err != nil {
+		log.Printf("Failed to strip sync envelope: %v", err)
+		return
+	}
+
+	if err := h.yjsService.SaveUpdate(message.DocumentID, rawUpdate); err != nil {
 		log.Printf("Failed to persist Yjs update: %v", err)
 	}
+}
+
+func stripSyncEnvelope(data []byte) ([]byte, error) {
+	if len(data) < 2 {
+		return nil, fmt.Errorf("data too short to contain sync envelope")
+	}
+
+	pos := 0
+	_, n := binary.Uvarint(data[pos:])
+	if n <= 0 {
+		return nil, fmt.Errorf("invalid varint for msgType")
+	}
+	pos += n
+
+	payloadLen, n := binary.Uvarint(data[pos:])
+	if n <= 0 {
+		return nil, fmt.Errorf("invalid varint for payload length")
+	}
+	pos += n
+
+	end := pos + int(payloadLen)
+	if end > len(data) {
+		return nil, fmt.Errorf("payload length %d extends beyond data length %d", payloadLen, len(data))
+	}
+
+	return data[pos:end], nil
+}
+
+func tryCleanPersistedUpdate(data []byte) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+
+	firstByte := data[0]
+
+	if firstByte == 0 {
+		return nil
+	}
+
+	if firstByte == 1 || firstByte == 2 {
+		raw, err := stripSyncEnvelope(data)
+		if err == nil && len(raw) > 0 {
+			return raw
+		}
+	}
+
+	return data
 }
 
 func generateColor(userID uuid.UUID) string {

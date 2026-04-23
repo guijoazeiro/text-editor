@@ -29,10 +29,31 @@ func NewDocumentHandler(db *gorm.DB) *DocumentHandler {
 	}
 }
 
-func (h *DocumentHandler) Create(c *gin.Context) {
+func parseUserUUID(c *gin.Context) (uuid.UUID, bool) {
 	userID, exists := c.Get("user_id")
 	if !exists {
 		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+		return uuid.Nil, false
+	}
+	switch v := userID.(type) {
+	case uuid.UUID:
+		return v, true
+	case string:
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			response.Error(c, http.StatusBadRequest, "Invalid user ID format", err)
+			return uuid.Nil, false
+		}
+		return parsed, true
+	default:
+		response.Error(c, http.StatusBadRequest, "Invalid user ID type", nil)
+		return uuid.Nil, false
+	}
+}
+
+func (h *DocumentHandler) Create(c *gin.Context) {
+	userUUID, ok := parseUserUUID(c)
+	if !ok {
 		return
 	}
 
@@ -42,26 +63,15 @@ func (h *DocumentHandler) Create(c *gin.Context) {
 		return
 	}
 
-	var userUUID uuid.UUID
-	switch v := userID.(type) {
-	case uuid.UUID:
-		userUUID = v
-	case string:
-		parsed, err := uuid.Parse(v)
-		if err != nil {
-			response.Error(c, http.StatusBadRequest, "Invalid user ID format", err)
-			return
-		}
-		userUUID = parsed
-	default:
-		response.Error(c, http.StatusBadRequest, "Invalid user ID type", nil)
-		return
+	if req.ContentFormat == "" {
+		req.ContentFormat = models.ContentFormatTipTap
 	}
 
 	document := models.Document{
-		Title:   req.Title,
-		Content: req.Content,
-		UserID:  userUUID,
+		Title:         req.Title,
+		Content:       req.Content,
+		ContentFormat: req.ContentFormat,
+		UserID:        userUUID,
 	}
 
 	if err := h.db.Create(&document).Error; err != nil {
@@ -70,7 +80,6 @@ func (h *DocumentHandler) Create(c *gin.Context) {
 	}
 
 	h.historyService.RecordCreation(document.ID, userUUID)
-
 	h.versionService.CreateVersion(document.ID, userUUID, document.Title, document.Content)
 
 	if err := h.db.Preload("User").First(&document, document.ID).Error; err != nil {
@@ -82,25 +91,8 @@ func (h *DocumentHandler) Create(c *gin.Context) {
 }
 
 func (h *DocumentHandler) List(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
-		return
-	}
-
-	var userUUID uuid.UUID
-	switch v := userID.(type) {
-	case uuid.UUID:
-		userUUID = v
-	case string:
-		parsed, err := uuid.Parse(v)
-		if err != nil {
-			response.Error(c, http.StatusBadRequest, "Invalid user ID format", err)
-			return
-		}
-		userUUID = parsed
-	default:
-		response.Error(c, http.StatusBadRequest, "Invalid user ID type", nil)
+	userUUID, ok := parseUserUUID(c)
+	if !ok {
 		return
 	}
 
@@ -125,35 +117,16 @@ func (h *DocumentHandler) List(c *gin.Context) {
 	}
 
 	allDocs := append(ownedDocs, sharedDocs...)
-
 	response.Success(c, http.StatusOK, "Documents fetched successfully", allDocs)
 }
 
 func (h *DocumentHandler) GetByID(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+	userUUID, ok := parseUserUUID(c)
+	if !ok {
 		return
 	}
 
-	var userUUID uuid.UUID
-	switch v := userID.(type) {
-	case uuid.UUID:
-		userUUID = v
-	case string:
-		parsed, err := uuid.Parse(v)
-		if err != nil {
-			response.Error(c, http.StatusBadRequest, "Invalid user ID format", err)
-			return
-		}
-		userUUID = parsed
-	default:
-		response.Error(c, http.StatusBadRequest, "Invalid user ID type", nil)
-		return
-	}
-
-	id := c.Param("id")
-	documentID, err := uuid.Parse(id)
+	documentID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
 		return
@@ -183,30 +156,12 @@ func (h *DocumentHandler) GetByID(c *gin.Context) {
 }
 
 func (h *DocumentHandler) Update(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+	userUUID, ok := parseUserUUID(c)
+	if !ok {
 		return
 	}
 
-	var userUUID uuid.UUID
-	switch v := userID.(type) {
-	case uuid.UUID:
-		userUUID = v
-	case string:
-		parsed, err := uuid.Parse(v)
-		if err != nil {
-			response.Error(c, http.StatusBadRequest, "Invalid user ID format", err)
-			return
-		}
-		userUUID = parsed
-	default:
-		response.Error(c, http.StatusBadRequest, "Invalid user ID type", nil)
-		return
-	}
-
-	id := c.Param("id")
-	documentID, err := uuid.Parse(id)
+	documentID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
 		return
@@ -223,8 +178,8 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var oldDocument models.Document
-	if err := h.db.Preload("User").First(&oldDocument, "id = ?", documentID).Error; err != nil {
+	var doc models.Document
+	if err := h.db.Preload("User").First(&doc, "id = ?", documentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			response.Error(c, http.StatusNotFound, "Document not found", err)
 			return
@@ -233,59 +188,42 @@ func (h *DocumentHandler) Update(c *gin.Context) {
 		return
 	}
 
-	documentBeforeUpdate := oldDocument
+	before := doc
 
 	if req.Title != "" {
-		oldDocument.Title = req.Title
+		doc.Title = req.Title
 	}
 	if req.Content != "" {
-		oldDocument.Content = req.Content
+		doc.Content = req.Content
+	}
+	if req.ContentFormat != "" {
+		doc.ContentFormat = req.ContentFormat
 	}
 
-	if err := h.db.Save(&oldDocument).Error; err != nil {
+	if err := h.db.Save(&doc).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to update document", err)
 		return
 	}
 
-	h.historyService.RecordUpdate(documentID, userUUID, &documentBeforeUpdate, &oldDocument)
-
-	h.versionService.CreateVersion(documentID, userUUID, oldDocument.Title, oldDocument.Content)
-
+	h.historyService.RecordUpdate(documentID, userUUID, &before, &doc)
+	h.versionService.CreateVersion(documentID, userUUID, doc.Title, doc.Content)
 	h.notificationService.NotifyDocumentEdited(documentID, userUUID)
 
-	if err := h.db.Preload("User").First(&oldDocument, oldDocument.ID).Error; err != nil {
+	if err := h.db.Preload("User").First(&doc, doc.ID).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch document", err)
 		return
 	}
 
-	response.Success(c, http.StatusOK, "Document updated successfully", oldDocument)
+	response.Success(c, http.StatusOK, "Document updated successfully", doc)
 }
 
 func (h *DocumentHandler) Delete(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, "User not authenticated", nil)
+	userUUID, ok := parseUserUUID(c)
+	if !ok {
 		return
 	}
 
-	var userUUID uuid.UUID
-	switch v := userID.(type) {
-	case uuid.UUID:
-		userUUID = v
-	case string:
-		parsed, err := uuid.Parse(v)
-		if err != nil {
-			response.Error(c, http.StatusBadRequest, "Invalid user ID format", err)
-			return
-		}
-		userUUID = parsed
-	default:
-		response.Error(c, http.StatusBadRequest, "Invalid user ID type", nil)
-		return
-	}
-
-	id := c.Param("id")
-	documentID, err := uuid.Parse(id)
+	documentID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
 		return

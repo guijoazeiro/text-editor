@@ -1,17 +1,26 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useMemo } from "react";
 import * as Y from "yjs";
 import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
+import * as awarenessProtocol from "y-protocols/awareness";
+
+export interface RemoteUser {
+  clientId: number;
+  user: { id: string; name: string; color: string };
+  cursor?: unknown;
+}
+
+export interface YjsEditorState {
+  ydoc: Y.Doc;
+  awareness: awarenessProtocol.Awareness;
+  provider: YjsWebSocketProvider | null;
+  synced: boolean;
+  remoteUsers: RemoteUser[];
+}
 
 interface UseYjsEditorOptions {
   documentId: string;
   ws: WebSocketClient | null;
-  /**
-   * initialContent is used ONLY to seed the Yjs doc when it is completely
-   * empty (i.e. no peers are online and no updates were persisted on the
-   * server). As soon as the doc syncs with any peer the network state wins.
-   */
-  initialContent?: string;
   userId?: string;
   userName?: string;
   userColor?: string;
@@ -20,142 +29,71 @@ interface UseYjsEditorOptions {
 export const useYjsEditor = ({
   documentId,
   ws,
-  initialContent = "",
   userId,
   userName,
   userColor,
-}: UseYjsEditorOptions) => {
-  const [content, setContent] = useState(initialContent);
+}: UseYjsEditorOptions): YjsEditorState => {
   const [synced, setSynced] = useState(false);
+  const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
+  const [provider, setProvider] = useState<YjsWebSocketProvider | null>(null);
 
-  const ydocRef = useRef<Y.Doc | null>(null);
-  const providerRef = useRef<YjsWebSocketProvider | null>(null);
-  const ytextRef = useRef<Y.Text | null>(null);
+  const { ydoc, awareness } = useMemo(() => {
+    const doc = new Y.Doc();
+    const aware = new awarenessProtocol.Awareness(doc);
+    return { ydoc: doc, awareness: aware };
+  }, []);
 
-  const seededRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      ydoc.destroy();
+    };
+  }, [ydoc]);
 
   useEffect(() => {
     if (!ws || !documentId) return;
 
-    const ydoc = new Y.Doc();
-    ydocRef.current = ydoc;
-
-    const ytext = ydoc.getText("content");
-    ytextRef.current = ytext;
-
-    if (!seededRef.current && initialContent && ytext.length === 0) {
-      seededRef.current = true;
-      ytext.insert(0, initialContent);
-    }
-
-    setContent(ytext.toString());
-
-    const provider = new YjsWebSocketProvider(documentId, ydoc, ws);
-    providerRef.current = provider;
+    const p = new YjsWebSocketProvider(documentId, ydoc, ws, awareness);
+    setProvider(p);
 
     if (userId && userName) {
-      provider.setAwarenessField("user", {
+      p.setAwarenessField("user", {
         id: userId,
         name: userName,
         color: userColor ?? generateColor(userId),
       });
     }
 
-    provider.on("synced", () => {
-      setSynced(true);
+    p.on("synced", () => setSynced(true));
 
-      setContent(ytext.toString());
-    });
-
-    const observer = () => {
-      setContent(ytext.toString());
+    const awarenessObserver = () => {
+      const states: RemoteUser[] = [];
+      p.awareness.getStates().forEach((state, clientId) => {
+        if (clientId !== p.awareness.clientID && state.user) {
+          states.push({ clientId, user: state.user, cursor: state.cursor });
+        }
+      });
+      setRemoteUsers(states);
     };
-    ytext.observe(observer);
+    p.awareness.on("change", awarenessObserver);
 
     return () => {
-      ytext.unobserve(observer);
-      provider.destroy();
-      ydoc.destroy();
-      ydocRef.current = null;
-      providerRef.current = null;
-      ytextRef.current = null;
-      seededRef.current = false;
+      p.awareness.off("change", awarenessObserver);
+      p.destroy();
+      setProvider(null);
       setSynced(false);
+      setRemoteUsers([]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, ws]);
 
-  const updateContent = useCallback((newContent: string) => {
-    const ytext = ytextRef.current;
-    if (!ytext) return;
-
-    const current = ytext.toString();
-    if (current === newContent) return;
-
-    applyStringDiff(ytext, current, newContent);
-
-    setContent(newContent);
-  }, []);
-
-  const getAwarenessStates = useCallback(() => {
-    const provider = providerRef.current;
-    if (!provider) return [];
-
-    const states: Array<{ clientId: number; user: unknown; cursor: unknown }> =
-      [];
-    provider.awareness.getStates().forEach((state, clientId) => {
-      if (clientId !== provider.awareness.clientID && state.user) {
-        states.push({ clientId, user: state.user, cursor: state.cursor });
-      }
-    });
-    return states;
-  }, []);
-
-  const updateCursor = useCallback(
-    (cursor: { line: number; column: number }) => {
-      providerRef.current?.setAwarenessField("cursor", cursor);
-    },
-    [],
-  );
-
   return {
-    content,
-    updateContent,
+    ydoc,
+    awareness,
+    provider,
     synced,
-    ydoc: ydocRef.current,
-    provider: providerRef.current,
-    getAwarenessStates,
-    updateCursor,
+    remoteUsers,
   };
 };
-
-function applyStringDiff(ytext: Y.Text, oldStr: string, newStr: string) {
-  let prefixLen = 0;
-  const minLen = Math.min(oldStr.length, newStr.length);
-  while (prefixLen < minLen && oldStr[prefixLen] === newStr[prefixLen]) {
-    prefixLen++;
-  }
-
-  let oldSuffixLen = 0;
-  let newSuffixLen = 0;
-  while (
-    oldSuffixLen < oldStr.length - prefixLen &&
-    newSuffixLen < newStr.length - prefixLen &&
-    oldStr[oldStr.length - 1 - oldSuffixLen] ===
-      newStr[newStr.length - 1 - newSuffixLen]
-  ) {
-    oldSuffixLen++;
-    newSuffixLen++;
-  }
-
-  const deleteCount = oldStr.length - prefixLen - oldSuffixLen;
-  const insertText = newStr.slice(prefixLen, newStr.length - newSuffixLen);
-
-  ydoc: {
-    if (deleteCount > 0) ytext.delete(prefixLen, deleteCount);
-    if (insertText.length > 0) ytext.insert(prefixLen, insertText);
-  }
-}
 
 function generateColor(userId: string): string {
   const colors = [
@@ -165,6 +103,8 @@ function generateColor(userId: string): string {
     "#EF4444",
     "#8B5CF6",
     "#EC4899",
+    "#14B8A6",
+    "#F97316",
   ];
   let hash = 0;
   for (let i = 0; i < userId.length; i++) hash += userId.charCodeAt(i);

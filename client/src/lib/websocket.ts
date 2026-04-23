@@ -7,7 +7,8 @@ export type MessageType =
   | "sync"
   | "awareness"
   | "yjs-sync"
-  | "yjs-awareness";
+  | "yjs-awareness"
+  | "yjs-init";
 
 export interface WSMessage {
   type: MessageType;
@@ -35,6 +36,7 @@ export class WebSocketClient {
     new Map();
   private connectionHandlers: Set<() => void> = new Set();
   private disconnectionHandlers: Set<() => void> = new Set();
+  private pendingMessages: Map<MessageType, any[]> = new Map();
 
   constructor(
     private documentId: string,
@@ -78,8 +80,15 @@ export class WebSocketClient {
 
             const message: WSMessage = JSON.parse(trimmedMsg);
             const handlers = this.messageHandlers.get(message.type);
-            if (handlers) {
+            if (handlers && handlers.size > 0) {
               handlers.forEach((handler) => handler(message));
+            } else {
+              // Buffer messages that arrive before handlers are registered
+              // (e.g. yjs-init arrives before YjsWebSocketProvider is created)
+              if (!this.pendingMessages.has(message.type)) {
+                this.pendingMessages.set(message.type, []);
+              }
+              this.pendingMessages.get(message.type)!.push(message);
             }
           } catch (parseError) {
             console.error("Error parsing WebSocket message:", parseError);
@@ -143,6 +152,13 @@ export class WebSocketClient {
       this.messageHandlers.set(type, new Set());
     }
     this.messageHandlers.get(type)!.add(handler);
+
+    // Replay any messages that arrived before this handler was registered
+    const pending = this.pendingMessages.get(type);
+    if (pending && pending.length > 0) {
+      this.pendingMessages.delete(type);
+      pending.forEach((msg) => handler(msg));
+    }
   }
 
   off(type: MessageType, handler: (data: any) => void) {
