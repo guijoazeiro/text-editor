@@ -20,9 +20,9 @@ export class YjsWebSocketProvider extends Observable<string> {
     private documentId: string,
     private doc: Y.Doc,
     private ws: WebSocketClient,
+    public awareness: awarenessProtocol.Awareness,
   ) {
     super();
-    this.awareness = new awarenessProtocol.Awareness(doc);
 
     this._setupDocumentListeners();
     this._setupWebSocketListeners();

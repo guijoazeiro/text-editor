@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import * as Y from "yjs";
 import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
+import * as awarenessProtocol from "y-protocols/awareness";
 
 export interface RemoteUser {
   clientId: number;
@@ -11,6 +12,7 @@ export interface RemoteUser {
 
 export interface YjsEditorState {
   ydoc: Y.Doc;
+  awareness: awarenessProtocol.Awareness;
   provider: YjsWebSocketProvider | null;
   synced: boolean;
   remoteUsers: RemoteUser[];
@@ -35,7 +37,11 @@ export const useYjsEditor = ({
   const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
   const [provider, setProvider] = useState<YjsWebSocketProvider | null>(null);
 
-  const ydoc = useMemo(() => new Y.Doc(), []);
+  const { ydoc, awareness } = useMemo(() => {
+    const doc = new Y.Doc();
+    const aware = new awarenessProtocol.Awareness(doc);
+    return { ydoc: doc, awareness: aware };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -46,7 +52,7 @@ export const useYjsEditor = ({
   useEffect(() => {
     if (!ws || !documentId) return;
 
-    const p = new YjsWebSocketProvider(documentId, ydoc, ws);
+    const p = new YjsWebSocketProvider(documentId, ydoc, ws, awareness);
     setProvider(p);
 
     if (userId && userName) {
@@ -82,6 +88,7 @@ export const useYjsEditor = ({
 
   return {
     ydoc,
+    awareness,
     provider,
     synced,
     remoteUsers,

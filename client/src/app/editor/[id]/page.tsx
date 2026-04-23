@@ -45,7 +45,7 @@ export default function EditorPage() {
     token || "",
   );
 
-  const { ydoc, provider, synced, remoteUsers } = useYjsEditor({
+  const { ydoc, awareness, provider, synced, remoteUsers } = useYjsEditor({
     documentId,
     ws: meta !== null ? ws : null,
     userId: user?.id,
@@ -63,6 +63,10 @@ export default function EditorPage() {
           emptyEditorClass: "is-editor-empty",
         }),
         Collaboration.configure({ document: ydoc, field: "content" }),
+        CollaborationCursor.configure({
+          provider: { awareness },
+          user: { name: userName, color: userColor },
+        }),
       ],
       editable: false,
       editorProps: {
@@ -73,23 +77,8 @@ export default function EditorPage() {
     [],
   );
 
-  const cursorRegistered = useRef(false);
-  useEffect(() => {
-    if (!editor || !provider || cursorRegistered.current) return;
-    cursorRegistered.current = true;
-    try {
-      const cursorExt = CollaborationCursor.configure({
-        provider: provider,
-        user: { name: userName, color: userColor },
-      });
+  // Cursors are now handled natively via the CollaborationCursor extension in useEditor
 
-      if (cursorExt.plugins && cursorExt.plugins.length > 0) {
-        cursorExt.plugins.forEach((plugin) => editor.registerPlugin(plugin));
-      }
-    } catch (err) {
-      console.warn("[Editor] Failed to register cursor plugin:", err);
-    }
-  }, [editor, provider, userName, userColor]);
 
   useEffect(() => {
     if (!editor || !meta) return;
