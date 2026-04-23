@@ -77,7 +77,7 @@ export default function RemoteCursors({
 
       const before = document.createTextNode(text.slice(0, offset));
       const marker = document.createElement("span");
-      marker.textContent = "\u200b"; // zero-width space
+      marker.textContent = "\u200b";
       const after = document.createTextNode(text.slice(offset));
 
       mirror.innerHTML = "";

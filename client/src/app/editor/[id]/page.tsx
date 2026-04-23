@@ -12,6 +12,7 @@ import { useAuthStore } from "@/store/authStore";
 import { documentsAPI } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useYjsEditor } from "@/hooks/useYjsEditor";
+import { YChange } from "@/lib/ychange";
 import Navbar from "@/components/Navbar";
 import EditorToolbar from "@/components/EditorToolbar";
 import UserPresence from "@/components/UserPresence";
@@ -58,11 +59,18 @@ export default function EditorPage() {
       extensions: [
         StarterKit.configure({ history: false }),
         Underline,
+        YChange,
         Placeholder.configure({
           placeholder: "Start typing… (CRDT-powered real-time collaboration)",
           emptyEditorClass: "is-editor-empty",
         }),
-        Collaboration.configure({ document: ydoc, field: "content" }),
+        Collaboration.configure({
+          document: ydoc,
+          field: "content",
+          ySyncOptions: {
+            colors: [{ light: "#6b7280", dark: "#6b7280" }],
+          },
+        }),
         CollaborationCursor.configure({
           provider: { awareness },
           user: { name: userName, color: userColor },
@@ -76,9 +84,6 @@ export default function EditorPage() {
     },
     [],
   );
-
-  // Cursors are now handled natively via the CollaborationCursor extension in useEditor
-
 
   useEffect(() => {
     if (!editor || !meta) return;
