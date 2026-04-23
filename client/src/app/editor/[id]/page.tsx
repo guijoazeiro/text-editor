@@ -53,9 +53,6 @@ export default function EditorPage() {
     userColor,
   });
 
-  // The editor is only created once the real Yjs provider is ready.
-  // This guarantees CollaborationCursor gets the real awareness from the start,
-  // so remote cursors work correctly without any placeholder-swap hacks.
   const editor = useEditor(
     {
       extensions: [
@@ -66,14 +63,6 @@ export default function EditorPage() {
           emptyEditorClass: "is-editor-empty",
         }),
         Collaboration.configure({ document: ydoc, field: "content" }),
-        ...(provider
-          ? [
-              CollaborationCursor.configure({
-                provider: provider,
-                user: { name: userName, color: userColor },
-              }),
-            ]
-          : []),
       ],
       editable: false,
       editorProps: {
@@ -81,20 +70,33 @@ export default function EditorPage() {
       },
       immediatelyRender: false,
     },
-    // Re-create the editor when the provider becomes available so that
-    // CollaborationCursor is initialised with the real awareness instance.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [!!provider],
+    [],
   );
 
-  // Enable editing after sync
+  const cursorRegistered = useRef(false);
+  useEffect(() => {
+    if (!editor || !provider || cursorRegistered.current) return;
+    cursorRegistered.current = true;
+    try {
+      const cursorExt = CollaborationCursor.configure({
+        provider: provider,
+        user: { name: userName, color: userColor },
+      });
+
+      if (cursorExt.plugins && cursorExt.plugins.length > 0) {
+        cursorExt.plugins.forEach((plugin) => editor.registerPlugin(plugin));
+      }
+    } catch (err) {
+      console.warn("[Editor] Failed to register cursor plugin:", err);
+    }
+  }, [editor, provider, userName, userColor]);
+
   useEffect(() => {
     if (!editor || !meta) return;
     const canEdit = meta.permission === "owner" || meta.permission === "editor";
     editor.setEditable(canEdit && synced);
   }, [editor, synced, meta]);
 
-  // Seed legacy plain-text content into the Yjs doc (runs once after sync)
   useEffect(() => {
     if (!synced || !editor || !meta || seededRef.current) return;
 

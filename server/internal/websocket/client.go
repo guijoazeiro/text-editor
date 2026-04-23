@@ -79,9 +79,10 @@ func (c *Client) ReadPump() {
 		}
 
 		c.Hub.Broadcast <- &Message{
-			DocumentID: c.DocumentID,
-			Data:       messageJSON,
-			SenderID:   c.UserID,
+			DocumentID:   c.DocumentID,
+			Data:         messageJSON,
+			SenderID:     c.UserID,
+			SenderConnID: c.ID,
 		}
 	}
 }

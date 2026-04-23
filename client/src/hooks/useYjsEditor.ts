@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import * as Y from "yjs";
 import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
@@ -33,7 +33,7 @@ export const useYjsEditor = ({
 }: UseYjsEditorOptions): YjsEditorState => {
   const [synced, setSynced] = useState(false);
   const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
-  const providerRef = useRef<YjsWebSocketProvider | null>(null);
+  const [provider, setProvider] = useState<YjsWebSocketProvider | null>(null);
 
   const ydoc = useMemo(() => new Y.Doc(), []);
 
@@ -46,34 +46,34 @@ export const useYjsEditor = ({
   useEffect(() => {
     if (!ws || !documentId) return;
 
-    const provider = new YjsWebSocketProvider(documentId, ydoc, ws);
-    providerRef.current = provider;
+    const p = new YjsWebSocketProvider(documentId, ydoc, ws);
+    setProvider(p);
 
     if (userId && userName) {
-      provider.setAwarenessField("user", {
+      p.setAwarenessField("user", {
         id: userId,
         name: userName,
         color: userColor ?? generateColor(userId),
       });
     }
 
-    provider.on("synced", () => setSynced(true));
+    p.on("synced", () => setSynced(true));
 
     const awarenessObserver = () => {
       const states: RemoteUser[] = [];
-      provider.awareness.getStates().forEach((state, clientId) => {
-        if (clientId !== provider.awareness.clientID && state.user) {
+      p.awareness.getStates().forEach((state, clientId) => {
+        if (clientId !== p.awareness.clientID && state.user) {
           states.push({ clientId, user: state.user, cursor: state.cursor });
         }
       });
       setRemoteUsers(states);
     };
-    provider.awareness.on("change", awarenessObserver);
+    p.awareness.on("change", awarenessObserver);
 
     return () => {
-      provider.awareness.off("change", awarenessObserver);
-      provider.destroy();
-      providerRef.current = null;
+      p.awareness.off("change", awarenessObserver);
+      p.destroy();
+      setProvider(null);
       setSynced(false);
       setRemoteUsers([]);
     };
@@ -82,7 +82,7 @@ export const useYjsEditor = ({
 
   return {
     ydoc,
-    provider: providerRef.current,
+    provider,
     synced,
     remoteUsers,
   };

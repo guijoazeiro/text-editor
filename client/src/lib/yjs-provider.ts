@@ -14,6 +14,7 @@ export class YjsWebSocketProvider extends Observable<string> {
   private _initTimeout: ReturnType<typeof setTimeout> | null = null;
 
   private _syncTimeout: ReturnType<typeof setTimeout> | null = null;
+  private _peerSyncStarted = false;
 
   constructor(
     private documentId: string,
@@ -35,6 +36,7 @@ export class YjsWebSocketProvider extends Observable<string> {
   private _onConnected() {
     this._synced = false;
     this._initReceived = false;
+    this._peerSyncStarted = false;
 
     if (this._initTimeout) clearTimeout(this._initTimeout);
     this._initTimeout = setTimeout(() => {
@@ -59,11 +61,28 @@ export class YjsWebSocketProvider extends Observable<string> {
     const rawBatch = payload["updates"];
     if (rawBatch && Array.isArray(rawBatch) && rawBatch.length > 0) {
       try {
-        const arrays = (rawBatch as unknown[]).map((item) =>
-          Array.isArray(item)
-            ? new Uint8Array(item as number[])
-            : (item as Uint8Array),
-        );
+        const arrays = (rawBatch as unknown[])
+          .map((item) => {
+            if (typeof item === "string") {
+              const binaryString = atob(item);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              return bytes;
+            }
+            return Array.isArray(item)
+              ? new Uint8Array(item as number[])
+              : (item as Uint8Array);
+          })
+          .filter((u) => u.length > 0);
+
+        if (arrays.length === 0) {
+          console.log("[Yjs] All init updates were invalid (old format?)");
+          this._startPeerSync();
+          return;
+        }
+
         const merged = Y.mergeUpdates(arrays);
         Y.applyUpdate(this.doc, merged, this);
         console.log(
@@ -78,6 +97,9 @@ export class YjsWebSocketProvider extends Observable<string> {
   }
 
   private _startPeerSync() {
+    if (this._peerSyncStarted) return;
+    this._peerSyncStarted = true;
+
     this._sendSyncStep1();
 
     if (this._syncTimeout) clearTimeout(this._syncTimeout);
@@ -264,4 +286,5 @@ export class YjsWebSocketProvider extends Observable<string> {
     this.awareness.destroy();
     super.destroy();
   }
+
 }
