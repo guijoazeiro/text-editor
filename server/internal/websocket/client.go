@@ -79,9 +79,10 @@ func (c *Client) ReadPump() {
 		}
 
 		c.Hub.Broadcast <- &Message{
-			DocumentID: c.DocumentID,
-			Data:       messageJSON,
-			SenderID:   c.UserID,
+			DocumentID:   c.DocumentID,
+			Data:         messageJSON,
+			SenderID:     c.UserID,
+			SenderConnID: c.ID,
 		}
 	}
 }
@@ -102,20 +103,16 @@ func (c *Client) WritePump() {
 				return
 			}
 
-			w, err := c.Conn.NextWriter(websocket.TextMessage)
-			if err != nil {
+			if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
-			w.Write(message)
 
 			n := len(c.Send)
 			for i := 0; i < n; i++ {
-				w.Write([]byte{'\n'})
-				w.Write(<-c.Send)
-			}
-
-			if err := w.Close(); err != nil {
-				return
+				c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := c.Conn.WriteMessage(websocket.TextMessage, <-c.Send); err != nil {
+					return
+				}
 			}
 
 		case <-ticker.C:

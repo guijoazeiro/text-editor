@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 interface User {
   id: string;
@@ -10,34 +11,49 @@ interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+  isHydrated: boolean;
   login: (token: string, user: User) => void;
   logout: () => void;
-  loadFromStorage: () => void;
+  initialize: () => void;
+  setHydrated: (hydrated: boolean) => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  token: null,
-  isAuthenticated: false,
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set, get) => ({
+      user: null,
+      token: null,
+      isAuthenticated: false,
+      isHydrated: false,
 
-  login: (token: string, user: User) => {
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(user));
-    set({ token, user, isAuthenticated: true });
-  },
+      login: (token: string, user: User) => {
+        set({ token, user, isAuthenticated: true });
+      },
 
-  logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    set({ token: null, user: null, isAuthenticated: false });
-  },
+      logout: () => {
+        set({ token: null, user: null, isAuthenticated: false });
+      },
 
-  loadFromStorage: () => {
-    const token = localStorage.getItem('token');
-    const userStr = localStorage.getItem('user');
-    if (token && userStr) {
-      const user = JSON.parse(userStr);
-      set({ token, user, isAuthenticated: true });
+      initialize: () => {
+        const state = get();
+        if (state.token && state.user) {
+          set({ isAuthenticated: true });
+        }
+      },
+
+      setHydrated: (hydrated: boolean) => {
+        set({ isHydrated: hydrated });
+      },
+    }),
+    {
+      name: 'auth-storage',
+      storage: createJSONStorage(() => localStorage),
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated(true);
+        if (state?.token && state?.user) {
+          state.isAuthenticated = true;
+        }
+      },
     }
-  },
-}));
+  )
+);

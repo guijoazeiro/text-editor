@@ -1,19 +1,20 @@
-'use client';
+"use client";
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/store/authStore';
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/authStore";
 
 export default function HomePage() {
   const router = useRouter();
-  const { isAuthenticated, loadFromStorage } = useAuthStore();
+  const { isAuthenticated, initialize } = useAuthStore();
 
   useEffect(() => {
-    loadFromStorage();
+    initialize();
+    
     if (isAuthenticated) {
-      router.push('/dashboard');
+      router.push("/dashboard");
     } else {
-      router.push('/login');
+      router.push("/login");
     }
   }, [isAuthenticated]);
 
