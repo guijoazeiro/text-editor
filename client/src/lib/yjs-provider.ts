@@ -59,6 +59,8 @@ export class YjsWebSocketProvider extends Observable<string> {
     }
 
     const rawBatch = payload["updates"];
+    const serverDoc = new Y.Doc();
+
     if (rawBatch && Array.isArray(rawBatch) && rawBatch.length > 0) {
       try {
         const arrays = (rawBatch as unknown[])
@@ -79,18 +81,31 @@ export class YjsWebSocketProvider extends Observable<string> {
 
         if (arrays.length === 0) {
           console.log("[Yjs] All init updates were invalid (old format?)");
-          this._startPeerSync();
-          return;
+        } else {
+          const merged = Y.mergeUpdates(arrays);
+          // Apply server state to a temporary doc to calculate diffs
+          Y.applyUpdate(serverDoc, merged);
+          
+          // Merge server state into our local doc
+          Y.applyUpdate(this.doc, merged, this);
+          console.log(
+            `[Yjs] Applied init snapshot (${arrays.length} updates merged)`,
+          );
         }
-
-        const merged = Y.mergeUpdates(arrays);
-        Y.applyUpdate(this.doc, merged, this);
-        console.log(
-          `[Yjs] Applied init snapshot (${arrays.length} updates merged)`,
-        );
       } catch (err) {
         console.error("[Yjs] Error applying init snapshot:", err);
       }
+    }
+
+    // PROACTIVE OFFLINE SYNC: 
+    // Calculate what our local doc has that the server doc doesn't
+    const serverStateVector = Y.encodeStateVector(serverDoc);
+    const missingUpdates = Y.encodeStateAsUpdate(this.doc, serverStateVector);
+    
+    // An empty update (no difference) is 2 bytes long ([0, 0])
+    if (missingUpdates.byteLength > 2) {
+      console.log(`[Yjs] Found offline edits (${missingUpdates.byteLength} bytes). Syncing to server...`);
+      this._sendUpdate(missingUpdates);
     }
 
     this._startPeerSync();

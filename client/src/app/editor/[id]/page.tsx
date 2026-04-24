@@ -46,7 +46,7 @@ export default function EditorPage() {
     token || "",
   );
 
-  const { ydoc, awareness, provider, synced, remoteUsers } = useYjsEditor({
+  const { ydoc, awareness, provider, synced, localSynced, remoteUsers } = useYjsEditor({
     documentId,
     ws: meta !== null ? ws : null,
     userId: user?.id,
@@ -88,8 +88,9 @@ export default function EditorPage() {
   useEffect(() => {
     if (!editor || !meta) return;
     const canEdit = meta.permission === "owner" || meta.permission === "editor";
-    editor.setEditable(canEdit && synced);
-  }, [editor, synced, meta]);
+    // Allow editing as soon as local IndexedDB is synced (offline support)
+    editor.setEditable(canEdit && localSynced);
+  }, [editor, localSynced, meta]);
 
   useEffect(() => {
     if (!synced || !editor || !meta || seededRef.current) return;
@@ -223,7 +224,7 @@ export default function EditorPage() {
                 className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-gray-400"}`}
               />
               <span className="text-sm text-gray-600">
-                {isConnected ? "Connected" : "Disconnected"}
+                {isConnected ? "Connected" : "Offline (Saved locally)"}
               </span>
             </div>
 

@@ -4,6 +4,8 @@ import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
 import * as awarenessProtocol from "y-protocols/awareness";
 
+import { IndexeddbPersistence } from "y-indexeddb";
+
 export interface RemoteUser {
   clientId: number;
   user: { id: string; name: string; color: string };
@@ -15,6 +17,7 @@ export interface YjsEditorState {
   awareness: awarenessProtocol.Awareness;
   provider: YjsWebSocketProvider | null;
   synced: boolean;
+  localSynced: boolean;
   remoteUsers: RemoteUser[];
 }
 
@@ -33,7 +36,8 @@ export const useYjsEditor = ({
   userName,
   userColor,
 }: UseYjsEditorOptions): YjsEditorState => {
-  const [synced, setSynced] = useState(false);
+  const [synced, setSynced] = useState(false); // Remote WebSocket sync
+  const [localSynced, setLocalSynced] = useState(false); // Local IndexedDB sync
   const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
   const [provider, setProvider] = useState<YjsWebSocketProvider | null>(null);
 
@@ -49,6 +53,24 @@ export const useYjsEditor = ({
     };
   }, [ydoc]);
 
+  // Handle IndexedDB persistence
+  useEffect(() => {
+    if (!documentId) return;
+    
+    setLocalSynced(false);
+    const idbProvider = new IndexeddbPersistence(documentId, ydoc);
+    
+    idbProvider.on("synced", () => {
+      console.log("[Yjs] Local IndexedDB synced");
+      setLocalSynced(true);
+    });
+
+    return () => {
+      idbProvider.destroy();
+    };
+  }, [documentId, ydoc]);
+
+  // Handle WebSocket provider
   useEffect(() => {
     if (!ws || !documentId) return;
 
@@ -63,7 +85,9 @@ export const useYjsEditor = ({
       });
     }
 
-    p.on("synced", () => setSynced(true));
+    p.on("synced", () => {
+      setSynced(true);
+    });
 
     const awarenessObserver = () => {
       const states: RemoteUser[] = [];
@@ -91,6 +115,7 @@ export const useYjsEditor = ({
     awareness,
     provider,
     synced,
+    localSynced,
     remoteUsers,
   };
 };
