@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
+	yjsdecoder "github.com/guijoazeiro/text-editor/tree/main/server/internal/yjs"
 )
 
 type Message struct {
@@ -271,6 +272,7 @@ func (h *Hub) tryPersistYjsUpdate(message *Message) {
 			}
 		}
 	default:
+		log.Printf("[Yjs] unexpected update payload type: %T", updateData)
 		return
 	}
 
@@ -278,19 +280,30 @@ func (h *Hub) tryPersistYjsUpdate(message *Message) {
 		return
 	}
 
-	msgType := updateBytes[0]
-	if msgType != 2 {
+	if updateBytes[0] != 2 {
 		return
 	}
 
 	rawUpdate, err := stripSyncEnvelope(updateBytes)
 	if err != nil {
-		log.Printf("Failed to strip sync envelope: %v", err)
+		log.Printf("[Yjs] failed to strip sync envelope: %v", err)
 		return
 	}
 
-	if err := h.yjsService.SaveUpdate(message.DocumentID, rawUpdate); err != nil {
-		log.Printf("Failed to persist Yjs update: %v", err)
+	meta, err := yjsdecoder.DecodeUpdateMeta(rawUpdate)
+	if err != nil {
+		log.Printf("[Yjs] rejecting malformed update from conn=%s doc=%s: %v",
+			message.SenderConnID, message.DocumentID, err)
+		return
+	}
+
+	if meta.IsEmpty {
+		return
+	}
+
+	if err := h.yjsService.SaveUpdate(message.DocumentID, rawUpdate, meta.LamportTS, meta.ClientID); err != nil {
+		log.Printf("[Yjs] failed to persist update (lamport=%d client=%d doc=%s): %v",
+			meta.LamportTS, meta.ClientID, message.DocumentID, err)
 	}
 }
 

@@ -61,9 +61,10 @@ func (h *YjsHandler) GetUpdates(c *gin.Context) {
 	updateList := make([]map[string]interface{}, len(updates))
 	for i, update := range updates {
 		updateList[i] = map[string]interface{}{
-			"id":     update.ID,
-			"clock":  update.Clock,
-			"update": update.Update,
+			"id":         update.ID,
+			"lamport_ts": update.LamportTS,
+			"client_id":  update.ClientID,
+			"update":     update.Update,
 		}
 	}
 

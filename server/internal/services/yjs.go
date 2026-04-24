@@ -16,11 +16,12 @@ func NewYjsService(db *gorm.DB) *YjsService {
 	return &YjsService{db: db}
 }
 
-func (s *YjsService) SaveUpdate(documentID uuid.UUID, update []byte) error {
+func (s *YjsService) SaveUpdate(documentID uuid.UUID, update []byte, lamportTS int64, clientID int64) error {
 	yjsUpdate := models.YjsUpdate{
 		DocumentID: documentID,
 		Update:     update,
-		Clock:      time.Now().UnixNano(),
+		LamportTS:  lamportTS,
+		ClientID:   clientID,
 	}
 
 	return s.db.Create(&yjsUpdate).Error
@@ -30,44 +31,20 @@ func (s *YjsService) GetUpdates(documentID uuid.UUID) ([]models.YjsUpdate, error
 	var updates []models.YjsUpdate
 	err := s.db.
 		Where("document_id = ?", documentID).
-		Order("clock ASC").
+		Order("lamport_ts ASC").
 		Find(&updates).Error
 
 	return updates, err
 }
 
-func (s *YjsService) GetUpdatesSince(documentID uuid.UUID, sinceClock int64) ([]models.YjsUpdate, error) {
+func (s *YjsService) GetUpdatesSince(documentID uuid.UUID, sinceLamport int64) ([]models.YjsUpdate, error) {
 	var updates []models.YjsUpdate
 	err := s.db.
-		Where("document_id = ? AND clock > ?", documentID, sinceClock).
-		Order("clock ASC").
+		Where("document_id = ? AND lamport_ts > ?", documentID, sinceLamport).
+		Order("lamport_ts ASC").
 		Find(&updates).Error
 
 	return updates, err
-}
-
-func (s *YjsService) CompactUpdates(documentID uuid.UUID, beforeClock int64, mergedUpdate []byte) error {
-	return s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.
-			Where("document_id = ? AND clock < ?", documentID, beforeClock).
-			Delete(&models.YjsUpdate{}).Error; err != nil {
-			return err
-		}
-
-		compactedUpdate := models.YjsUpdate{
-			DocumentID: documentID,
-			Update:     mergedUpdate,
-			Clock:      beforeClock,
-		}
-
-		return tx.Create(&compactedUpdate).Error
-	})
-}
-
-func (s *YjsService) DeleteOldUpdates(olderThan time.Time) error {
-	return s.db.
-		Where("created_at < ?", olderThan).
-		Delete(&models.YjsUpdate{}).Error
 }
 
 func (s *YjsService) GetDocumentUpdateCount(documentID uuid.UUID) (int64, error) {
@@ -78,4 +55,40 @@ func (s *YjsService) GetDocumentUpdateCount(documentID uuid.UUID) (int64, error)
 		Count(&count).Error
 
 	return count, err
+}
+
+func (s *YjsService) GetDocumentUpdateSize(documentID uuid.UUID) (int64, error) {
+	var totalBytes int64
+	err := s.db.
+		Model(&models.YjsUpdate{}).
+		Where("document_id = ?", documentID).
+		Select("COALESCE(SUM(octet_length(update)), 0)").
+		Scan(&totalBytes).Error
+
+	return totalBytes, err
+}
+
+func (s *YjsService) CompactUpdates(documentID uuid.UUID, beforeLamport int64, mergedUpdate []byte) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.
+			Where("document_id = ? AND lamport_ts < ?", documentID, beforeLamport).
+			Delete(&models.YjsUpdate{}).Error; err != nil {
+			return err
+		}
+
+		compacted := models.YjsUpdate{
+			DocumentID: documentID,
+			Update:     mergedUpdate,
+			LamportTS:  beforeLamport,
+			ClientID:   0,
+		}
+
+		return tx.Create(&compacted).Error
+	})
+}
+
+func (s *YjsService) DeleteOldUpdates(olderThan time.Time) error {
+	return s.db.
+		Where("created_at < ?", olderThan).
+		Delete(&models.YjsUpdate{}).Error
 }
