@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
+	"github.com/guijoazeiro/text-editor/tree/main/server/internal/websocket"
 	"github.com/guijoazeiro/text-editor/tree/main/server/pkg/response"
 	"gorm.io/gorm"
 )
@@ -16,14 +18,16 @@ type VersionHandler struct {
 	versionService    *services.VersionService
 	permissionService *services.PermissionService
 	historyService    *services.HistoryService
+	hub               *websocket.Hub
 }
 
-func NewVersionHandler(db *gorm.DB) *VersionHandler {
+func NewVersionHandler(db *gorm.DB, snapshotService *services.SnapshotService, hub *websocket.Hub) *VersionHandler {
 	return &VersionHandler{
 		db:                db,
-		versionService:    services.NewVersionService(db),
+		versionService:    services.NewVersionService(db, snapshotService),
 		permissionService: services.NewPermissionService(db),
 		historyService:    services.NewHistoryService(db),
+		hub:               hub,
 	}
 }
 
@@ -150,7 +154,7 @@ func (h *VersionHandler) RestoreVersion(c *gin.Context) {
 		return
 	}
 
-	document, err := h.versionService.RestoreVersion(documentID, versionNumber, userUUID)
+	result, err := h.versionService.RestoreVersion(documentID, versionNumber, userUUID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to restore version", err)
 		return
@@ -158,7 +162,14 @@ func (h *VersionHandler) RestoreVersion(c *gin.Context) {
 
 	h.historyService.RecordCreation(documentID, userUUID)
 
-	response.Success(c, http.StatusOK, "Version restored successfully", document)
+	if len(result.YjsSnapshot) > 0 && h.hub != nil {
+		go func() {
+			h.hub.BroadcastYjsReset(documentID, result.YjsSnapshot)
+			log.Printf("[Version] yjs-reset broadcast for doc=%s version=%d", documentID, versionNumber)
+		}()
+	}
+
+	response.Success(c, http.StatusOK, "Version restored successfully", result.Document)
 }
 
 func (h *VersionHandler) CompareVersions(c *gin.Context) {

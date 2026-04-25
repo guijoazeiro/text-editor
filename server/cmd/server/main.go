@@ -56,7 +56,7 @@ func main() {
 
 	jwtService := auth.NewJWT(cfg)
 
-	router := setupRouter(db, cfg, jwtService, hub, yjsService)
+	router := setupRouter(db, cfg, jwtService, hub, yjsService, snapshotService)
 
 	port := cfg.Port
 	if port == "" {
@@ -69,7 +69,7 @@ func main() {
 	}
 }
 
-func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *websocket.Hub, yjsService *services.YjsService) *gin.Engine {
+func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *websocket.Hub, yjsService *services.YjsService, snapshotService *services.SnapshotService) *gin.Engine {
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -89,7 +89,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	collaboratorHandler := handlers.NewCollaboratorHandler(db)
 	notificationHandler := handlers.NewNotificationHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
-	versionHandler := handlers.NewVersionHandler(db)
+	versionHandler := handlers.NewVersionHandler(db, snapshotService, hub)
 	wsHandler := handlers.NewWebSocketHandler(hub, db, jwtService)
 
 	permissionService := services.NewPermissionService(db)

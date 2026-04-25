@@ -46,7 +46,15 @@ export default function EditorPage() {
     token || "",
   );
 
-  const { ydoc, awareness, provider, synced, localSynced, remoteUsers } = useYjsEditor({
+  const {
+    ydoc,
+    awareness,
+    provider,
+    synced,
+    localSynced,
+    remoteUsers,
+    applyReset,
+  } = useYjsEditor({
     documentId,
     ws: meta !== null ? ws : null,
     userId: user?.id,
@@ -88,9 +96,27 @@ export default function EditorPage() {
   useEffect(() => {
     if (!editor || !meta) return;
     const canEdit = meta.permission === "owner" || meta.permission === "editor";
-    // Allow editing as soon as local IndexedDB is synced (offline support)
     editor.setEditable(canEdit && localSynced);
   }, [editor, localSynced, meta]);
+
+  useEffect(() => {
+    if (!provider || !editor) return;
+
+    const onReset = (snapshot: Uint8Array) => {
+      const canEdit =
+        meta?.permission === "owner" || meta?.permission === "editor";
+      editor.setEditable(false);
+      applyReset(snapshot);
+      Promise.resolve().then(() => {
+        editor.setEditable(canEdit && localSynced);
+      });
+    };
+
+    provider.on("reset", onReset);
+    return () => {
+      provider.off("reset", onReset);
+    };
+  }, [provider, editor, meta, applyReset, localSynced]);
 
   useEffect(() => {
     if (!synced || !editor || !meta || seededRef.current) return;

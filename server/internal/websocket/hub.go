@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -228,6 +229,37 @@ func (h *Hub) GetActiveUsers(documentID uuid.UUID) int {
 		return len(clients)
 	}
 	return 0
+}
+
+func (h *Hub) BroadcastYjsReset(documentID uuid.UUID, snapshot []byte) {
+	encoded := base64.StdEncoding.EncodeToString(snapshot)
+
+	msg := models.WSMessage{
+		Type: models.MessageTypeYjsReset,
+		Data: map[string]interface{}{
+			"snapshot": encoded,
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[YjsReset] failed to marshal reset message for doc=%s: %v", documentID, err)
+		return
+	}
+
+	h.mu.RLock()
+	clients := h.Clients[documentID]
+	h.mu.RUnlock()
+
+	sent := 0
+	for c := range clients {
+		select {
+		case c.Send <- data:
+			sent++
+		default:
+			log.Printf("[YjsReset] send buffer full for user=%s, skipping", c.UserName)
+		}
+	}
+	log.Printf("[YjsReset] broadcast reset to %d peers for doc=%s", sent, documentID)
 }
 
 func (h *Hub) sendPersistedYjsState(client *Client) {

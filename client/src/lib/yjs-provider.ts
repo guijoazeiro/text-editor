@@ -153,6 +153,10 @@ export class YjsWebSocketProvider extends Observable<string> {
     this.ws.on("yjs-awareness-off", (message: WSMessage) => {
       this._handleAwarenessOff(message);
     });
+
+    this.ws.on("yjs-reset", (message: WSMessage) => {
+      this._handleYjsReset(message);
+    });
   }
 
   private _setupAwarenessListeners() {
@@ -306,6 +310,26 @@ export class YjsWebSocketProvider extends Observable<string> {
       console.log(
         `[Yjs] Removed awareness for disconnected user=${userId} (clientIds=${clientIdsToRemove.join(",")})`,
       );
+    }
+  }
+
+  private _handleYjsReset(message: WSMessage) {
+    const snapshotB64 = message.data?.["snapshot"] as string | undefined;
+    if (!snapshotB64) {
+      console.warn("[Yjs] Received yjs-reset without snapshot, ignoring");
+      return;
+    }
+
+    try {
+      const binaryString = atob(snapshotB64);
+      const snapshot = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        snapshot[i] = binaryString.charCodeAt(i);
+      }
+      console.log(`[Yjs] Received yjs-reset (${snapshot.byteLength} bytes)`);
+      this.emit("reset", [snapshot]);
+    } catch (err) {
+      console.error("[Yjs] Failed to decode yjs-reset snapshot:", err);
     }
   }
 

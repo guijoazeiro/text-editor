@@ -9,6 +9,7 @@ export type MessageType =
   | "yjs-sync"
   | "yjs-awareness"
   | "yjs-awareness-off"
+  | "yjs-reset"
   | "yjs-init";
 
 export interface WSMessage {
@@ -152,7 +153,6 @@ export class WebSocketClient {
     }
     this.messageHandlers.get(type)!.add(handler);
 
-    // Replay any messages that arrived before this handler was registered
     const pending = this.pendingMessages.get(type);
     if (pending && pending.length > 0) {
       this.pendingMessages.delete(type);

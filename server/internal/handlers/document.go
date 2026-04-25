@@ -25,7 +25,7 @@ func NewDocumentHandler(db *gorm.DB) *DocumentHandler {
 		permissionService:   services.NewPermissionService(db),
 		historyService:      services.NewHistoryService(db),
 		notificationService: services.NewNotificationService(db),
-		versionService:      services.NewVersionService(db),
+		versionService:      services.NewVersionService(db, nil),
 	}
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import * as Y from "yjs";
 import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
@@ -19,6 +19,7 @@ export interface YjsEditorState {
   synced: boolean;
   localSynced: boolean;
   remoteUsers: RemoteUser[];
+  applyReset: (snapshot: Uint8Array) => void;
 }
 
 interface UseYjsEditorOptions {
@@ -36,8 +37,8 @@ export const useYjsEditor = ({
   userName,
   userColor,
 }: UseYjsEditorOptions): YjsEditorState => {
-  const [synced, setSynced] = useState(false); // Remote WebSocket sync
-  const [localSynced, setLocalSynced] = useState(false); // Local IndexedDB sync
+  const [synced, setSynced] = useState(false);
+  const [localSynced, setLocalSynced] = useState(false);
   const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([]);
   const [provider, setProvider] = useState<YjsWebSocketProvider | null>(null);
 
@@ -53,13 +54,12 @@ export const useYjsEditor = ({
     };
   }, [ydoc]);
 
-  // Handle IndexedDB persistence
   useEffect(() => {
     if (!documentId) return;
-    
+
     setLocalSynced(false);
     const idbProvider = new IndexeddbPersistence(documentId, ydoc);
-    
+
     idbProvider.on("synced", () => {
       console.log("[Yjs] Local IndexedDB synced");
       setLocalSynced(true);
@@ -70,7 +70,6 @@ export const useYjsEditor = ({
     };
   }, [documentId, ydoc]);
 
-  // Handle WebSocket provider
   useEffect(() => {
     if (!ws || !documentId) return;
 
@@ -110,6 +109,39 @@ export const useYjsEditor = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId, ws]);
 
+  const applyReset = useCallback(
+    (snapshot: Uint8Array) => {
+      try {
+        console.log("[Yjs] Applying yjs-reset snapshot to ydoc…");
+
+        Y.transact(
+          ydoc,
+          () => {
+            Y.applyUpdate(ydoc, snapshot);
+          },
+          "yjs-reset",
+        );
+        console.log("[Yjs] yjs-reset applied successfully");
+      } catch (err) {
+        console.error("[Yjs] Failed to apply yjs-reset snapshot:", err);
+      }
+    },
+    [ydoc],
+  );
+
+  useEffect(() => {
+    if (!provider) return;
+
+    const onReset = (snapshot: Uint8Array) => {
+      applyReset(snapshot);
+    };
+
+    provider.on("reset", onReset);
+    return () => {
+      provider.off("reset", onReset);
+    };
+  }, [provider, applyReset]);
+
   return {
     ydoc,
     awareness,
@@ -117,6 +149,7 @@ export const useYjsEditor = ({
     synced,
     localSynced,
     remoteUsers,
+    applyReset,
   };
 };
 

@@ -13,6 +13,7 @@ type DocumentVersion struct {
 	VersionNumber int       `gorm:"not null" json:"version_number"`
 	Title         string    `gorm:"type:varchar(255);not null" json:"title"`
 	Content       string    `gorm:"type:text" json:"content"`
+	YjsSnapshot   []byte    `gorm:"type:bytea" json:"yjs_snapshot,omitempty"`
 	CreatedBy     uuid.UUID `gorm:"type:uuid;not null" json:"created_by"`
 	User          User      `gorm:"foreignKey:CreatedBy" json:"user"`
 	CreatedAt     time.Time `json:"created_at"`
