@@ -197,6 +197,12 @@ func (h *Hub) notifyUserLeft(client *Client) {
 
 	data, _ := json.Marshal(leaveMsg)
 
+	awarenessOffMsg := models.WSMessage{
+		Type:   models.MessageTypeYjsAwarenessOff,
+		UserID: client.UserID.String(),
+	}
+	awarenessOffData, _ := json.Marshal(awarenessOffMsg)
+
 	h.mu.RLock()
 	clients := h.Clients[client.DocumentID]
 	h.mu.RUnlock()
@@ -204,6 +210,11 @@ func (h *Hub) notifyUserLeft(client *Client) {
 	for c := range clients {
 		select {
 		case c.Send <- data:
+		default:
+		}
+
+		select {
+		case c.Send <- awarenessOffData:
 		default:
 		}
 	}

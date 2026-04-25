@@ -13,8 +13,9 @@ const (
 	MessageTypeSync         MessageType = "sync"
 	MessageTypeAwareness    MessageType = "awareness"
 	MessageTypeYjsSync      MessageType = "yjs-sync"
-	MessageTypeYjsAwareness MessageType = "yjs-awareness"
-	MessageTypeYjsInit      MessageType = "yjs-init"
+	MessageTypeYjsAwareness    MessageType = "yjs-awareness"
+	MessageTypeYjsInit         MessageType = "yjs-init"
+	MessageTypeYjsAwarenessOff MessageType = "yjs-awareness-off"
 )
 
 type WSMessage struct {

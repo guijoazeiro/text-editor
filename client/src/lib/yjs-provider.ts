@@ -7,7 +7,6 @@ import * as decoding from "lib0/decoding";
 import { WebSocketClient, WSMessage } from "./websocket";
 
 export class YjsWebSocketProvider extends Observable<string> {
-  public awareness: awarenessProtocol.Awareness;
   private _synced = false;
 
   private _initReceived = false;
@@ -83,10 +82,9 @@ export class YjsWebSocketProvider extends Observable<string> {
           console.log("[Yjs] All init updates were invalid (old format?)");
         } else {
           const merged = Y.mergeUpdates(arrays);
-          // Apply server state to a temporary doc to calculate diffs
+
           Y.applyUpdate(serverDoc, merged);
-          
-          // Merge server state into our local doc
+
           Y.applyUpdate(this.doc, merged, this);
           console.log(
             `[Yjs] Applied init snapshot (${arrays.length} updates merged)`,
@@ -97,14 +95,13 @@ export class YjsWebSocketProvider extends Observable<string> {
       }
     }
 
-    // PROACTIVE OFFLINE SYNC: 
-    // Calculate what our local doc has that the server doc doesn't
     const serverStateVector = Y.encodeStateVector(serverDoc);
     const missingUpdates = Y.encodeStateAsUpdate(this.doc, serverStateVector);
-    
-    // An empty update (no difference) is 2 bytes long ([0, 0])
+
     if (missingUpdates.byteLength > 2) {
-      console.log(`[Yjs] Found offline edits (${missingUpdates.byteLength} bytes). Syncing to server...`);
+      console.log(
+        `[Yjs] Found offline edits (${missingUpdates.byteLength} bytes). Syncing to server...`,
+      );
       this._sendUpdate(missingUpdates);
     }
 
@@ -151,6 +148,10 @@ export class YjsWebSocketProvider extends Observable<string> {
 
     this.ws.on("yjs-awareness", (message: WSMessage) => {
       this._handleAwarenessUpdate(message.data);
+    });
+
+    this.ws.on("yjs-awareness-off", (message: WSMessage) => {
+      this._handleAwarenessOff(message);
     });
   }
 
@@ -230,6 +231,7 @@ export class YjsWebSocketProvider extends Observable<string> {
         case syncProtocol.messageYjsSyncStep1: {
           const encoder = encoding.createEncoder();
           encoding.writeVarUint(encoder, syncProtocol.messageYjsSyncStep2);
+          // @ts-ignore — @types/y-protocols declares 3rd arg as Uint8Array but runtime expects Decoder
           syncProtocol.writeSyncStep2(encoder, this.doc, decoder);
           this._sendBytes(encoding.toUint8Array(encoder));
           break;
@@ -284,6 +286,29 @@ export class YjsWebSocketProvider extends Observable<string> {
     }
   }
 
+  private _handleAwarenessOff(message: WSMessage) {
+    const userId = message.user_id;
+    if (!userId) return;
+
+    const clientIdsToRemove: number[] = [];
+    this.awareness.getStates().forEach((state, clientId) => {
+      if (state?.user?.id === userId) {
+        clientIdsToRemove.push(clientId);
+      }
+    });
+
+    if (clientIdsToRemove.length > 0) {
+      awarenessProtocol.removeAwarenessStates(
+        this.awareness,
+        clientIdsToRemove,
+        "server-disconnect",
+      );
+      console.log(
+        `[Yjs] Removed awareness for disconnected user=${userId} (clientIds=${clientIdsToRemove.join(",")})`,
+      );
+    }
+  }
+
   public setAwarenessField(field: string, value: unknown) {
     this.awareness.setLocalState({
       ...(this.awareness.getLocalState() ?? {}),
@@ -301,5 +326,4 @@ export class YjsWebSocketProvider extends Observable<string> {
     this.awareness.destroy();
     super.destroy();
   }
-
 }
