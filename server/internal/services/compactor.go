@@ -186,3 +186,55 @@ func (c *CompactorService) callWorker(updates [][]byte) ([]byte, error) {
 
 	return merged, nil
 }
+
+type stateVectorRequest struct {
+	Snapshot string `json:"snapshot"`
+}
+
+type stateVectorResponse struct {
+	StateVector string `json:"stateVector"`
+	Error       string `json:"error,omitempty"`
+}
+
+func (c *CompactorService) GetStateVector(snapshot []byte) ([]byte, error) {
+	encoded := base64.StdEncoding.EncodeToString(snapshot)
+
+	body, err := json.Marshal(stateVectorRequest{Snapshot: encoded})
+	if err != nil {
+		return nil, fmt.Errorf("marshal state-vector request: %w", err)
+	}
+
+	resp, err := c.httpClient.Post(
+		c.config.WorkerURL+"/state-vector",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("http post state-vector: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read state-vector response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("worker returned status %d: %s", resp.StatusCode, respBody)
+	}
+
+	var result stateVectorResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal state-vector response: %w", err)
+	}
+	if result.Error != "" {
+		return nil, fmt.Errorf("worker error: %s", result.Error)
+	}
+
+	sv, err := base64.StdEncoding.DecodeString(result.StateVector)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode state vector: %w", err)
+	}
+
+	return sv, nil
+}

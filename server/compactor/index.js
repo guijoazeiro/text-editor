@@ -4,11 +4,10 @@ const express = require("express");
 
 const PORT = process.env.PORT || 3001;
 
-let mergeUpdates = null;
+let yjs = null;
 
 async function main() {
-  const yjs = await import("yjs");
-  mergeUpdates = yjs.mergeUpdates;
+  yjs = await import("yjs");
 
   const app = express();
 
@@ -31,13 +30,33 @@ async function main() {
         return new Uint8Array(u);
       });
 
-      const merged = mergeUpdates(uint8Arrays);
+      const merged = yjs.mergeUpdates(uint8Arrays);
 
       const snapshot = Buffer.from(merged).toString("base64");
 
       res.json({ snapshot });
     } catch (err) {
       console.error("[compactor] error during merge:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/state-vector", (req, res) => {
+    const { snapshot } = req.body;
+
+    if (!snapshot || typeof snapshot !== "string") {
+      return res
+        .status(400)
+        .json({ error: "snapshot must be a base64 string" });
+    }
+
+    try {
+      const snapshotBytes = new Uint8Array(Buffer.from(snapshot, "base64"));
+
+      const stateVector = yjs.encodeStateVectorFromUpdate(snapshotBytes);
+      res.json({ stateVector: Buffer.from(stateVector).toString("base64") });
+    } catch (err) {
+      console.error("[compactor] error computing state vector:", err.message);
       res.status(500).json({ error: err.message });
     }
   });

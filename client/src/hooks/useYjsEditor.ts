@@ -28,6 +28,7 @@ interface UseYjsEditorOptions {
   userId?: string;
   userName?: string;
   userColor?: string;
+  token?: string;
 }
 
 export const useYjsEditor = ({
@@ -36,6 +37,7 @@ export const useYjsEditor = ({
   userId,
   userName,
   userColor,
+  token,
 }: UseYjsEditorOptions): YjsEditorState => {
   const [synced, setSynced] = useState(false);
   const [localSynced, setLocalSynced] = useState(false);
@@ -73,7 +75,7 @@ export const useYjsEditor = ({
   useEffect(() => {
     if (!ws || !documentId) return;
 
-    const p = new YjsWebSocketProvider(documentId, ydoc, ws, awareness);
+    const p = new YjsWebSocketProvider(documentId, ydoc, ws, awareness, token);
     setProvider(p);
 
     if (userId && userName) {

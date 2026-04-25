@@ -60,6 +60,7 @@ export default function EditorPage() {
     userId: user?.id,
     userName: user?.name,
     userColor,
+    token: token || undefined,
   });
 
   const editor = useEditor(

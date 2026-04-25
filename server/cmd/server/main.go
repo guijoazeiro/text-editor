@@ -56,7 +56,7 @@ func main() {
 
 	jwtService := auth.NewJWT(cfg)
 
-	router := setupRouter(db, cfg, jwtService, hub, yjsService, snapshotService)
+	router := setupRouter(db, cfg, jwtService, hub, yjsService, snapshotService, compactorService)
 
 	port := cfg.Port
 	if port == "" {
@@ -69,7 +69,7 @@ func main() {
 	}
 }
 
-func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *websocket.Hub, yjsService *services.YjsService, snapshotService *services.SnapshotService) *gin.Engine {
+func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *websocket.Hub, yjsService *services.YjsService, snapshotService *services.SnapshotService, compactorService *services.CompactorService) *gin.Engine {
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -93,7 +93,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	wsHandler := handlers.NewWebSocketHandler(hub, db, jwtService)
 
 	permissionService := services.NewPermissionService(db)
-	yjsHandler := handlers.NewYjsHandler(yjsService, permissionService)
+	yjsHandler := handlers.NewYjsHandler(yjsService, permissionService, snapshotService, compactorService)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -132,6 +132,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 				protected.GET("/:id/active-users", wsHandler.GetActiveUsers)
 
 				protected.GET("/:id/yjs-updates", yjsHandler.GetUpdates)
+				protected.GET("/:id/yjs-state-vector", yjsHandler.GetStateVector)
 
 				protected.POST("/:id/collaborators", collaboratorHandler.AddCollaborator)
 				protected.GET("/:id/collaborators", collaboratorHandler.ListCollaborators)
