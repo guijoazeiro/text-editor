@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -37,7 +38,19 @@ func main() {
 	yjsService := services.NewYjsService(db)
 	log.Println("Yjs service initialized")
 
-	hub := websocket.NewHub(yjsService)
+	snapshotService := services.NewSnapshotService(db, yjsService)
+	log.Println("Snapshot service initialized")
+
+	compactorURL := os.Getenv("COMPACTOR_URL")
+	if compactorURL == "" {
+		compactorURL = "http://localhost:3001"
+	}
+	compactorService := services.NewCompactorService(yjsService, snapshotService, services.CompactorConfig{
+		WorkerURL: compactorURL,
+	})
+	log.Printf("Compactor service initialized (worker=%s)", compactorURL)
+
+	hub := websocket.NewHub(yjsService, snapshotService, compactorService)
 	go hub.Run()
 	log.Println("WebSocket hub started")
 

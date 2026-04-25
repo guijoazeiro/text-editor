@@ -1,0 +1,17 @@
+{
+  "name": "yjs-compactor",
+  "version": "1.0.0",
+  "description": "Lightweight Yjs update compaction worker. Receives an array of raw Yjs update buffers and returns a single merged update via Y.mergeUpdates().",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "yjs": "^13.6.18"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
