@@ -1,164 +1,174 @@
-# Docs Editor — Editor Colaborativo em Tempo Real
+# Docs Editor — Real-Time Collaborative Editor
 
-Editor de documentos colaborativo inspirado no Google Docs, construído do zero com foco em aprender e demonstrar tecnologias reais de sincronização distribuída (**CRDT via Yjs**) e comunicação em tempo real (**WebSockets**).
+A collaborative document editor inspired by Google Docs, built from scratch to learn and demonstrate real distributed synchronization technologies (**CRDT via Yjs**) and real-time communication (**WebSockets**).
+
+> 📖 [Leia em Português](./README.pt.md)
 
 ---
 
 ## Stack
 
-| Camada | Tecnologia |
-|--------|-----------|
+| Layer | Technology |
+|-------|-----------|
 | Frontend | Next.js 14, TypeScript, Tailwind CSS |
-| Editor | TipTap v2 + extensões de colaboração |
+| Editor | TipTap v2 + collaboration extensions |
 | CRDT | Yjs + y-protocols |
-| Tempo real | WebSocket (gorilla/websocket) |
+| Real-time | WebSocket (gorilla/websocket) |
 | Backend | Go 1.22 + Gin |
-| Banco | PostgreSQL + golang-migrate |
+| Database | PostgreSQL + golang-migrate |
 | Infra | Docker + docker-compose |
 
 ---
 
-## Funcionalidades implementadas
+## Features
 
-### Autenticação
-- Registro e login com JWT (24h de validade)
-- Senhas com bcrypt
-- Middleware de proteção de rotas (HTTP e WebSocket)
-- Autenticação WebSocket via **subprotocol** (`Sec-WebSocket-Protocol`) — mais seguro que query params, token não aparece em logs
+### Authentication
+- Sign-up and login with JWT (24h expiry)
+- bcrypt password hashing
+- Route protection middleware (HTTP and WebSocket)
+- WebSocket auth via **subprotocol** (`Sec-WebSocket-Protocol`) — safer than query params; token never appears in server logs
 
-### Documentos
-- CRUD completo com owner automático
-- Campo `content_format` para distinguir texto legado (`"text"`) de rich text (`"tiptap"`)
-- Preload de relação `User` em todas as respostas
+### Documents
+- Full CRUD with automatic owner assignment
+- `content_format` field to distinguish legacy plain text (`"text"`) from rich text (`"tiptap"`)
+- `User` relation preloaded on all responses
 
-### Sistema de permissões
-- Três níveis: `owner`, `editor`, `viewer`
-- Owner: todas as operações
-- Editor: pode editar, não pode deletar nem gerenciar colaboradores
-- Viewer: somente leitura
+### Permission System
+- Three levels: `owner`, `editor`, `viewer`
+- Owner: all operations
+- Editor: can edit, cannot delete or manage collaborators
+- Viewer: read-only
 
-### Colaboração
-- Adicionar colaboradores por email
-- Atualizar permissão de colaboradores
-- Remover colaboradores
-- Links públicos de compartilhamento com permissão configurável e expiração opcional
+### Collaboration
+- Add collaborators by email
+- Update collaborator permissions
+- Remove collaborators
+- Public share links with configurable permissions and optional expiry
 
-### Notificações
-- Ao ser adicionado como colaborador
-- Ao ter permissão alterada
-- Ao colaborador editar o documento (owner recebe)
-- Marcar como lida individualmente ou em lote
-- Contador de não lidas
+### Notifications
+- When added as a collaborator
+- When permission changes
+- When a collaborator edits a document (owner receives)
+- Mark as read individually or in bulk
+- Unread counter
 
-### Histórico e versionamento
-- Histórico de edições: quem editou, quando e o que mudou (diff)
-- Filtros no histórico: por usuário, tipo de ação, data
-- Versionamento com snapshots completos do documento
-- Restaurar versão anterior (salva versão atual antes de restaurar)
-- Comparar duas versões (diff)
+### History & Versioning
+- Edit history: who edited, when, and what changed (diff)
+- History filters: by user, action type, date
+- Versioning with full document snapshots
+- Restore a previous version (saves the current version first)
+- Compare two versions (diff)
 
-### WebSocket — Presença em tempo real
-- Rooms por documento: cada documento tem sua sala isolada
-- Presence tracking: join/leave automático ao conectar/desconectar
-- Broadcast de eventos para todos os clientes da sala
-- Reconexão automática com backoff (até 5 tentativas)
-- Autenticação via subprotocol JWT
+### WebSocket — Real-time Presence
+- Rooms per document: each document has its own isolated room
+- Presence tracking: automatic join/leave on connect/disconnect
+- Event broadcast to all clients in the room
+- Automatic reconnection with exponential backoff (up to 5 attempts)
+- JWT auth via WebSocket subprotocol
 
-### CRDT com Yjs
-**Por que CRDT?** Operational Transformation (OT, usado no Google Docs original) resolve conflitos de edição simultânea via transformações matemáticas que precisam de um servidor central como árbitro. CRDT resolve o mesmo problema por design — cada operação é comutativa e idempotente, então dois clientes que aplicam as mesmas operações em qualquer ordem chegam ao mesmo resultado, sem árbitro central.
+### CRDT with Yjs
+**Why CRDT?** Operational Transformation (OT, used in the original Google Docs) resolves simultaneous edit conflicts via mathematical transformations that require a central server as an arbiter. CRDT solves the same problem by design — each operation is commutative and idempotent, so two clients applying the same operations in any order reach the same result, without a central arbiter.
 
-**Arquitetura:**
+**Architecture:**
 ```
-Cliente A (Yjs doc) ──┐
+Client A (Yjs doc) ──┐
                       ├── WebSocket ──► Go Backend (relay) ──► PostgreSQL
-Cliente B (Yjs doc) ──┘                     │
-                                            └── yjs_updates table
+Client B (Yjs doc) ──┘                     │
+                                           ├── yjs_updates table
+                                           └── yjs_snapshots table
 ```
 
-O backend Go **não precisa entender** o conteúdo Yjs — ele é um relay puro. Isso é intencional: a lógica de merge vive nos clientes.
+The Go backend **does not need to understand** Yjs content — it is a pure relay. This is intentional: merge logic lives in the clients.
 
-**Protocolo de sincronização:**
-1. Cliente conecta → envia `SyncStep1` (state vector: quais operações já tem)
-2. Peer recebe `SyncStep1` → responde com `SyncStep2` (diff: operações que o outro não tem)
-3. Cliente recebe `SyncStep2` → aplica ao doc local, marcado como `synced`
-4. Qualquer edição local → envia `Update` para todos os peers via relay
-5. Reconexão → repete a partir do passo 1
+**Sync protocol:**
+1. Client connects → sends `SyncStep1` (state vector: which operations it already has)
+2. Peer receives `SyncStep1` → responds with `SyncStep2` (diff: operations the other doesn't have)
+3. Client receives `SyncStep2` → applies to local doc, marked as `synced`
+4. Any local edit → sends `Update` to all peers via relay
+5. Reconnection → repeats from step 1
 
-**Persistência:** O backend salva cada update Yjs na tabela `yjs_updates` (bytea). Quando um novo cliente conecta, o hub envia todos os updates salvos para ele reconstruir o estado completo — assim o documento persiste mesmo sem nenhum peer online.
+**Persistence:** The backend saves each Yjs update in the `yjs_updates` table (bytea). When a new client connects, the hub sends all saved updates so it can reconstruct the full state — the document persists even with no peer online.
 
-**Rich text com TipTap:**
-- O TipTap usa `Y.XmlFragment("content")` como CRDT subjacente (não `Y.Text`)
-- `Y.XmlFragment` é uma árvore XML colaborativa — cada nó (parágrafo, heading, bold) é uma operação CRDT independente
-- Isso significa que dois usuários podem formatar o mesmo trecho simultaneamente sem conflito
-- A extensão `@tiptap/extension-collaboration` conecta o ProseMirror (engine do TipTap) ao Yjs automaticamente
+**Compaction:** A Node.js worker (`compactor/`) runs `Y.mergeUpdates` to merge individual updates into a single snapshot when a count or size threshold is reached. Compaction also runs when the last peer disconnects. This keeps `yjs_updates` from growing unboundedly.
 
-### Awareness visual
-- Cursors remotos em tempo real: linha colorida na posição de caret de cada usuário
-- Badges com nome aparecem por 2.5s ao mover o cursor
-- Seleções coloridas de outros usuários (highlight semi-transparente)
-- Tooltips com nome e status "editing" nos avatares
-- Dot pulsante no avatar quando o usuário está com cursor ativo
+**Rich text with TipTap:**
+- TipTap uses `Y.XmlFragment("content")` as the underlying CRDT (not `Y.Text`)
+- `Y.XmlFragment` is a collaborative XML tree — each node (paragraph, heading, bold) is an independent CRDT operation
+- Two users can format the same text simultaneously without conflict
+- `@tiptap/extension-collaboration` connects ProseMirror (TipTap's engine) to Yjs automatically
+
+### Visual Awareness
+- Real-time remote cursors: colored caret line at each user's cursor position
+- Name badges appear for 2.5s on cursor move
+- Colored selections from other users (semi-transparent highlight)
+- Tooltips with name and "editing" status on avatars
+- Pulsing dot on avatar when the user has an active cursor
 
 ---
 
-## Estrutura do projeto
+## Project Structure
 
 ```
 text-editor/
 ├── client/                     # Next.js frontend
 │   └── src/
 │       ├── app/
-│       │   ├── dashboard/      # Lista de documentos
-│       │   ├── editor/[id]/    # Editor principal
+│       │   ├── dashboard/      # Document list
+│       │   ├── editor/[id]/    # Main editor
 │       │   ├── login/
 │       │   └── signup/
 │       ├── components/
-│       │   ├── EditorToolbar.tsx     # Barra de formatação TipTap
+│       │   ├── EditorToolbar.tsx     # TipTap formatting toolbar
 │       │   ├── Navbar.tsx
-│       │   ├── RemoteCursors.tsx     # Cursors e seleções remotas
-│       │   ├── TiptapEditor.tsx      # Wrapper do editor
-│       │   └── UserPresence.tsx      # Avatares online
+│       │   ├── RemoteCursors.tsx     # Remote cursors and selections
+│       │   ├── TiptapEditor.tsx      # Editor wrapper
+│       │   └── UserPresence.tsx      # Online avatars
 │       ├── hooks/
-│       │   ├── useWebSocket.ts       # Conexão WebSocket + presença
+│       │   ├── useWebSocket.ts       # WebSocket connection + presence
 │       │   └── useYjsEditor.ts       # Yjs doc + provider + sync state
 │       ├── lib/
-│       │   ├── api.ts                # Cliente HTTP (axios)
+│       │   ├── api.ts                # HTTP client (axios)
 │       │   ├── websocket.ts          # WebSocketClient class
-│       │   └── yjs-provider.ts       # Protocolo de sync Yjs
+│       │   └── yjs-provider.ts       # Yjs sync protocol
 │       └── store/
 │           └── authStore.ts          # Zustand (JWT + user)
 │
 └── server/                     # Go backend
     ├── cmd/server/main.go
+    ├── compactor/              # Node.js worker for Yjs merge operations
+    │   └── index.js            # /compact and /state-vector endpoints
     ├── internal/
     │   ├── auth/               # JWT + bcrypt
     │   ├── config/
-    │   ├── database/           # Conexão + migrations runner
+    │   ├── database/           # Connection + migrations runner
     │   ├── handlers/           # HTTP handlers (Gin)
     │   ├── middleware/         # Auth middleware
     │   ├── models/             # GORM models
-    │   ├── services/           # Lógica de negócio
+    │   ├── services/           # Business logic
     │   └── websocket/          # Hub + Client (gorilla/websocket)
-    ├── migrations/             # SQL versionado (golang-migrate)
+    ├── migrations/             # Versioned SQL (golang-migrate)
     │   ├── 000001 → documents
     │   ├── 000002 → users
-    │   ├── 000003 → user_id em documents
+    │   ├── 000003 → user_id on documents
     │   ├── 000004 → document_collaborators
     │   ├── 000005 → document_share_links
     │   ├── 000006 → notifications
     │   ├── 000007 → document_histories
     │   ├── 000008 → document_versions
     │   ├── 000009 → yjs_updates
-    │   └── 000010 → content_format em documents
-    └── pkg/response/           # Respostas padronizadas
+    │   ├── 000010 → content_format on documents
+    │   ├── 000011 → lamport_ts + client_id on yjs_updates
+    │   ├── 000012 → yjs_snapshots
+    │   └── 000013 → yjs_snapshot on document_versions
+    └── pkg/response/           # Standardized responses
 ```
 
 ---
 
-## Como rodar
+## Running Locally
 
-### Pré-requisitos
-- Docker e docker-compose
+### Prerequisites
+- Docker and docker-compose
 - Node.js 18+
 
 ### Backend
@@ -166,13 +176,13 @@ text-editor/
 ```bash
 cd server
 
-# Copiar variáveis de ambiente
+# Copy environment variables
 cp .env.example .env
 
-# Subir PostgreSQL + backend (migrations rodam automaticamente)
+# Start PostgreSQL + backend (migrations run automatically)
 docker-compose up -d
 
-# Ver logs
+# View logs
 docker-compose logs -f backend
 ```
 
@@ -181,89 +191,93 @@ docker-compose logs -f backend
 ```bash
 cd client
 
-# Instalar dependências
+# Install dependencies
 npm install
 
-# Criar .env.local
+# Create .env.local
 echo "NEXT_PUBLIC_API_URL=http://localhost:8080" > .env.local
 echo "NEXT_PUBLIC_WS_URL=ws://localhost:8080" >> .env.local
 
-# Rodar em desenvolvimento
+# Start development server
 npm run dev
 ```
 
-Acesse `http://localhost:3000`.
+Open `http://localhost:3000`.
 
 ---
 
-## API — endpoints principais
+## API — Main Endpoints
 
 ### Auth
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| POST | `/api/auth/signup` | Criar conta |
-| POST | `/api/auth/login` | Login (retorna JWT) |
-| GET | `/api/auth/me` | Dados do usuário autenticado |
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/auth/signup` | Create account |
+| POST | `/api/auth/login` | Login (returns JWT) |
+| GET | `/api/auth/me` | Authenticated user data |
 
-### Documentos
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| POST | `/api/documents` | Criar documento |
-| GET | `/api/documents` | Listar (owned + shared) |
-| GET | `/api/documents/:id` | Buscar por ID + permissão |
-| PUT | `/api/documents/:id` | Atualizar |
-| DELETE | `/api/documents/:id` | Deletar (owner only) |
+### Documents
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/documents` | Create document |
+| GET | `/api/documents` | List (owned + shared) |
+| GET | `/api/documents/:id` | Fetch by ID + permission |
+| PUT | `/api/documents/:id` | Update |
+| DELETE | `/api/documents/:id` | Delete (owner only) |
 
-### Colaboração
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| POST | `/api/documents/:id/collaborators` | Adicionar por email |
-| GET | `/api/documents/:id/collaborators` | Listar |
-| PUT | `/api/documents/:id/collaborators/:user_id` | Atualizar permissão |
-| DELETE | `/api/documents/:id/collaborators/:user_id` | Remover |
-| POST | `/api/documents/:id/share-link` | Criar link público |
-| DELETE | `/api/documents/:id/share-link` | Remover link |
+### Collaboration
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/documents/:id/collaborators` | Add by email |
+| GET | `/api/documents/:id/collaborators` | List |
+| PUT | `/api/documents/:id/collaborators/:user_id` | Update permission |
+| DELETE | `/api/documents/:id/collaborators/:user_id` | Remove |
+| POST | `/api/documents/:id/share-link` | Create public link |
+| DELETE | `/api/documents/:id/share-link` | Remove link |
 
-### Histórico e versões
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/api/documents/:id/history` | Histórico com filtros |
-| GET | `/api/documents/:id/versions` | Listar versões |
-| GET | `/api/documents/:id/versions/:n` | Ver versão específica |
-| POST | `/api/documents/:id/versions/:n/restore` | Restaurar versão |
-| GET | `/api/documents/:id/versions/compare?v1=N&v2=M` | Comparar versões |
+### History & Versions
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/documents/:id/history` | History with filters |
+| GET | `/api/documents/:id/versions` | List versions |
+| GET | `/api/documents/:id/versions/:n` | Fetch specific version |
+| POST | `/api/documents/:id/versions/:n/restore` | Restore version |
+| GET | `/api/documents/:id/versions/compare?v1=N&v2=M` | Compare versions |
 
-### Notificações
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/api/notifications` | Listar + contador de não lidas |
-| PUT | `/api/notifications/:id/read` | Marcar como lida |
-| PUT | `/api/notifications/read-all` | Marcar todas como lidas |
-| DELETE | `/api/notifications/:id` | Deletar |
+### Notifications
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/notifications` | List + unread count |
+| PUT | `/api/notifications/:id/read` | Mark as read |
+| PUT | `/api/notifications/read-all` | Mark all as read |
+| DELETE | `/api/notifications/:id` | Delete |
 
 ### WebSocket
-| Rota | Descrição |
-|------|-----------|
-| `WS /ws/documents/:id` | Conectar ao documento (auth via subprotocol) |
+| Route | Description |
+|-------|-------------|
+| `WS /ws/documents/:id` | Connect to document (auth via subprotocol) |
+
+### CRDT (Yjs)
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/documents/:id/yjs-updates` | Raw CRDT updates |
+| GET | `/api/documents/:id/yjs-state-vector` | Current state vector (reconnection optimization) |
 
 ---
 
-## Decisões técnicas relevantes
+## Technical Decisions
 
-**Por que Go no backend?** Performance nativa para WebSockets com muitas conexões simultâneas. Goroutines são muito mais leves que threads — cada conexão WebSocket roda em sua própria goroutine.
+**Why Go on the backend?** Native performance for WebSockets with many simultaneous connections. Goroutines are far lighter than threads — each WebSocket connection runs in its own goroutine with minimal overhead.
 
-**Por que Yjs e não implementar CRDT próprio?** Yjs é battle-tested, usado em produção por Notion, Figma, e outros. Implementar CRDT do zero (LSEQ, RGA, Logoot) é um projeto de dissertação. O aprendizado está em *entender e integrar* o Yjs, não em reimplementar algoritmos já provados.
+**Why Yjs and not a custom CRDT?** Yjs is battle-tested and used in production by Notion, Figma, and others. Implementing CRDT from scratch (LSEQ, RGA, Logoot) is a dissertation-level project. The learning here is in *understanding and integrating* Yjs, not reinventing proven algorithms.
 
-**Por que o backend Go não precisa entender Yjs?** O CRDT é peer-to-peer por natureza. O servidor é só um relay — repassa bytes de um cliente para os outros. Isso torna o backend stateless em relação ao conteúdo, e fácil de escalar horizontalmente (com um broker de mensagens como Redis Pub/Sub entre instâncias).
+**Why doesn't the Go backend need to understand Yjs?** CRDT is peer-to-peer by nature. The server is just a relay — it forwards bytes from one client to the others. This keeps the backend stateless with respect to document content and easy to scale horizontally (with a message broker like Redis Pub/Sub between instances).
 
-**Migrations versionadas vs AutoMigrate:** AutoMigrate do GORM é conveniente mas sem controle de versão, sem rollback, e não recomendado para produção. `golang-migrate` com arquivos SQL numerados dá rastreabilidade total — cada mudança no schema é um arquivo `up.sql` + `down.sql` commitado no repositório.
+**Versioned migrations vs AutoMigrate:** GORM's AutoMigrate is convenient but has no version control, no rollback, and is not recommended for production. `golang-migrate` with numbered SQL files gives full traceability — each schema change is an `up.sql` + `down.sql` file committed to the repository.
 
-**Autenticação WebSocket via subprotocol:** Browsers não permitem headers customizados em conexões WebSocket. A solução comum (e insegura) é passar o token como query param — ele aparece em logs de servidor, logs de proxy, histórico do browser. O subprotocol (`Sec-WebSocket-Protocol`) é um header WebSocket padrão que passa no handshake sem aparecer na URL.
+**WebSocket auth via subprotocol:** Browsers do not allow custom headers on WebSocket connections. The common (and insecure) solution is passing the token as a query param — it appears in server logs, proxy logs, and browser history. The subprotocol (`Sec-WebSocket-Protocol`) is a standard WebSocket header sent during the handshake without appearing in the URL.
 
----
+**CRDT compaction with a Node.js worker:** Go has no native Yjs implementation. To merge updates (`Y.mergeUpdates`) and generate state vectors, a Node.js worker (`compactor/`) exposes HTTP endpoints consumed by the Go backend. This avoids WebAssembly and keeps each responsibility in its natural language. The compactor applies a dual threshold policy: compact when updates exceed a count limit **or** a total size limit. Idle compaction also runs when the last peer disconnects.
 
-## Próximos passos
+**Version restore via `document-content-reset`:** Restoring a version using a binary CRDT snapshot does not work for time-travel — `Y.applyUpdate` is additive, and operations with a higher Lamport clock always win. The correct approach is to broadcast the version's JSON content via WebSocket (`document-content-reset`) and have each client call `editor.commands.setContent()`. This generates new Yjs operations with the current maximum clock, properly overwriting the old content in every peer's Y.Doc. The server-side CRDT state is also cleared on restore so that newly connecting clients start from a clean slate and seed from the restored `documents.content`.
 
-- [ ] Offline support com `y-indexeddb` (editar sem internet, sync ao reconectar)
-- [ ] Compactação de updates Yjs antigos (`Y.mergeUpdates`)
-- [ ] Deploy público (Railway/Render para o backend, Vercel para o frontend)
+**Causal ordering with Lamport timestamps:** The backend decodes the binary Yjs v1 update format in Go (without instantiating a Y.Doc) to extract the `LamportTS` and `ClientID` of each update. These are indexed in `yjs_updates` to guarantee causal ordering when replaying history to new peers, and to correctly determine the delta to send during reconnection.
