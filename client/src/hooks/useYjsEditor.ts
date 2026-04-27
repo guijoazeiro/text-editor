@@ -4,8 +4,6 @@ import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
 import * as awarenessProtocol from "y-protocols/awareness";
 
-import { IndexeddbPersistence } from "y-indexeddb";
-
 export interface RemoteUser {
   clientId: number;
   user: { id: string; name: string; color: string };
@@ -59,17 +57,22 @@ export const useYjsEditor = ({
   useEffect(() => {
     if (!documentId) return;
 
-    setLocalSynced(false);
-    const idbProvider = new IndexeddbPersistence(documentId, ydoc);
-
-    idbProvider.on("synced", () => {
-      console.log("[Yjs] Local IndexedDB synced");
+    const clearAndSync = async () => {
+      try {
+        await new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase(documentId);
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+          req.onblocked = () => resolve();
+        });
+        console.log(
+          "[Yjs] IndexedDB cleared — loading fresh state from server",
+        );
+      } catch {}
       setLocalSynced(true);
-    });
-
-    return () => {
-      idbProvider.destroy();
     };
+
+    clearAndSync();
   }, [documentId, ydoc]);
 
   useEffect(() => {
@@ -112,10 +115,13 @@ export const useYjsEditor = ({
   }, [documentId, ws]);
 
   const applyReset = useCallback(
-    (snapshot: Uint8Array) => {
+    async (snapshot: Uint8Array) => {
       try {
         console.log("[Yjs] Applying yjs-reset snapshot to ydoc…");
 
+        // Apply the authoritative snapshot. We use transact with origin
+        // "yjs-reset" so the provider's doc.on("update") listener ignores
+        // this update and does NOT re-broadcast it to the server.
         Y.transact(
           ydoc,
           () => {
@@ -123,12 +129,26 @@ export const useYjsEditor = ({
           },
           "yjs-reset",
         );
+
+        // Clear the IndexedDB cache so the next page load doesn't restore
+        // the pre-reset state from local storage.
+        try {
+          const { clearDocument } = await import("y-indexeddb");
+          await clearDocument(documentId);
+          console.log("[Yjs] IndexedDB cleared after reset");
+        } catch {
+          // y-indexeddb may not export clearDocument — fall back to manual clear
+          // The IndexeddbPersistence uses documentId as the DB name directly.
+          indexedDB.deleteDatabase(documentId);
+          console.log("[Yjs] IndexedDB deleted after reset (fallback)");
+        }
+
         console.log("[Yjs] yjs-reset applied successfully");
       } catch (err) {
         console.error("[Yjs] Failed to apply yjs-reset snapshot:", err);
       }
     },
-    [ydoc],
+    [ydoc, documentId],
   );
 
   useEffect(() => {

@@ -24,10 +24,15 @@ async function main() {
 
     try {
       const uint8Arrays = updates.map((u, idx) => {
-        if (!Array.isArray(u)) {
-          throw new Error(`updates[${idx}] expected array, got ${typeof u}`);
+        if (typeof u === "string") {
+          return new Uint8Array(Buffer.from(u, "base64"));
         }
-        return new Uint8Array(u);
+        if (Array.isArray(u)) {
+          return new Uint8Array(u);
+        }
+        throw new Error(
+          `updates[${idx}] expected base64 string or number array, got ${typeof u}`,
+        );
       });
 
       const merged = yjs.mergeUpdates(uint8Arrays);

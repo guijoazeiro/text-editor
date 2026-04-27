@@ -93,11 +93,8 @@ func (s *VersionService) RestoreVersion(documentID uuid.UUID, versionNumber int,
 
 	result := &RestoreResult{Document: &document}
 
-	if len(version.YjsSnapshot) > 0 && s.snapshotService != nil {
-
-		if err := s.snapshotService.SaveSnapshotAndClearUpdates(documentID, version.YjsSnapshot, 0); err == nil {
-			result.YjsSnapshot = version.YjsSnapshot
-		}
+	if s.snapshotService != nil {
+		_ = s.snapshotService.ClearDocumentCRDTState(documentID)
 	}
 
 	return result, nil

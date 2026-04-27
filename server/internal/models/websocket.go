@@ -15,8 +15,9 @@ const (
 	MessageTypeYjsSync      MessageType = "yjs-sync"
 	MessageTypeYjsAwareness    MessageType = "yjs-awareness"
 	MessageTypeYjsInit         MessageType = "yjs-init"
-	MessageTypeYjsAwarenessOff MessageType = "yjs-awareness-off"
-	MessageTypeYjsReset        MessageType = "yjs-reset"
+	MessageTypeYjsAwarenessOff    MessageType = "yjs-awareness-off"
+	MessageTypeYjsReset           MessageType = "yjs-reset"
+	MessageTypeDocumentContentReset MessageType = "document-content-reset"
 )
 
 type WSMessage struct {

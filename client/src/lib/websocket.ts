@@ -10,7 +10,8 @@ export type MessageType =
   | "yjs-awareness"
   | "yjs-awareness-off"
   | "yjs-reset"
-  | "yjs-init";
+  | "yjs-init"
+  | "document-content-reset";
 
 export interface WSMessage {
   type: MessageType;

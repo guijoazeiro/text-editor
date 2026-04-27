@@ -262,6 +262,36 @@ func (h *Hub) BroadcastYjsReset(documentID uuid.UUID, snapshot []byte) {
 	log.Printf("[YjsReset] broadcast reset to %d peers for doc=%s", sent, documentID)
 }
 
+func (h *Hub) BroadcastDocumentContentReset(documentID uuid.UUID, content, title string) {
+	msg := models.WSMessage{
+		Type: models.MessageTypeDocumentContentReset,
+		Data: map[string]interface{}{
+			"content": content,
+			"title":   title,
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[ContentReset] failed to marshal message for doc=%s: %v", documentID, err)
+		return
+	}
+
+	h.mu.RLock()
+	clients := h.Clients[documentID]
+	h.mu.RUnlock()
+
+	sent := 0
+	for c := range clients {
+		select {
+		case c.Send <- data:
+			sent++
+		default:
+			log.Printf("[ContentReset] send buffer full for user=%s, skipping", c.UserName)
+		}
+	}
+	log.Printf("[ContentReset] broadcast content reset to %d peers for doc=%s", sent, documentID)
+}
+
 func (h *Hub) sendPersistedYjsState(client *Client) {
 	if h.snapshotService == nil && h.yjsService == nil {
 		return

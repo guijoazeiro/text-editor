@@ -19,13 +19,13 @@ type DocumentHandler struct {
 	versionService      *services.VersionService
 }
 
-func NewDocumentHandler(db *gorm.DB) *DocumentHandler {
+func NewDocumentHandler(db *gorm.DB, snapshotService *services.SnapshotService) *DocumentHandler {
 	return &DocumentHandler{
 		db:                  db,
 		permissionService:   services.NewPermissionService(db),
 		historyService:      services.NewHistoryService(db),
 		notificationService: services.NewNotificationService(db),
-		versionService:      services.NewVersionService(db, nil),
+		versionService:      services.NewVersionService(db, snapshotService),
 	}
 }
 

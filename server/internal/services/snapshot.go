@@ -101,3 +101,14 @@ func (s *SnapshotService) SaveSnapshotAndClearUpdates(
 			Delete(&models.YjsUpdate{}).Error
 	})
 }
+
+func (s *SnapshotService) ClearDocumentCRDTState(documentID uuid.UUID) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("document_id = ?", documentID).
+			Delete(&models.YjsSnapshot{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("document_id = ?", documentID).
+			Delete(&models.YjsUpdate{}).Error
+	})
+}

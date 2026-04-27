@@ -120,6 +120,41 @@ export default function EditorPage() {
   }, [provider, editor, meta, applyReset, localSynced]);
 
   useEffect(() => {
+    if (!ws || !editor) return;
+
+    const handleContentReset = (
+      message: import("@/lib/websocket").WSMessage,
+    ) => {
+      const content = message?.data?.content;
+      if (!content) return;
+
+      const canEdit =
+        meta?.permission === "owner" || meta?.permission === "editor";
+      editor.setEditable(false);
+
+      try {
+        const parsed = JSON.parse(content);
+        editor.commands.setContent(parsed, true);
+      } catch {
+        editor.commands.setContent(`<p>${content}</p>`, true);
+      }
+
+      Promise.resolve().then(() => {
+        editor.setEditable(canEdit && localSynced);
+      });
+
+      console.log(
+        "[Editor] document-content-reset applied (legacy version restore)",
+      );
+    };
+
+    ws.on("document-content-reset", handleContentReset);
+    return () => {
+      ws.off("document-content-reset", handleContentReset);
+    };
+  }, [ws, editor, meta, localSynced]);
+
+  useEffect(() => {
     if (!synced || !editor || !meta || seededRef.current) return;
 
     const fragment = ydoc.getXmlFragment("content");

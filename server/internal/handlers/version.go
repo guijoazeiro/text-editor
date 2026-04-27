@@ -162,10 +162,10 @@ func (h *VersionHandler) RestoreVersion(c *gin.Context) {
 
 	h.historyService.RecordCreation(documentID, userUUID)
 
-	if len(result.YjsSnapshot) > 0 && h.hub != nil {
+	if h.hub != nil && result.Document != nil {
 		go func() {
-			h.hub.BroadcastYjsReset(documentID, result.YjsSnapshot)
-			log.Printf("[Version] yjs-reset broadcast for doc=%s version=%d", documentID, versionNumber)
+			h.hub.BroadcastDocumentContentReset(documentID, result.Document.Content, result.Document.Title)
+			log.Printf("[Version] document-content-reset broadcast for doc=%s version=%d", documentID, versionNumber)
 		}()
 	}
 
