@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/base64"
 	"errors"
 
 	"github.com/google/uuid"
@@ -9,11 +10,12 @@ import (
 )
 
 type VersionService struct {
-	db *gorm.DB
+	db              *gorm.DB
+	snapshotService *SnapshotService
 }
 
-func NewVersionService(db *gorm.DB) *VersionService {
-	return &VersionService{db: db}
+func NewVersionService(db *gorm.DB, snapshotService *SnapshotService) *VersionService {
+	return &VersionService{db: db, snapshotService: snapshotService}
 }
 
 func (s *VersionService) CreateVersion(documentID, userID uuid.UUID, title, content string) error {
@@ -23,11 +25,19 @@ func (s *VersionService) CreateVersion(documentID, userID uuid.UUID, title, cont
 		Select("COALESCE(MAX(version_number), 0)").
 		Scan(&maxVersion)
 
+	var yjsSnapshot []byte
+	if s.snapshotService != nil {
+		if snap, err := s.snapshotService.GetSnapshot(documentID); err == nil && snap != nil {
+			yjsSnapshot = snap.Snapshot
+		}
+	}
+
 	version := models.DocumentVersion{
 		DocumentID:    documentID,
 		VersionNumber: maxVersion + 1,
 		Title:         title,
 		Content:       content,
+		YjsSnapshot:   yjsSnapshot,
 		CreatedBy:     userID,
 	}
 
@@ -54,7 +64,12 @@ func (s *VersionService) GetVersion(documentID uuid.UUID, versionNumber int) (*m
 	return &version, nil
 }
 
-func (s *VersionService) RestoreVersion(documentID uuid.UUID, versionNumber int, userID uuid.UUID) (*models.Document, error) {
+type RestoreResult struct {
+	Document    *models.Document
+	YjsSnapshot []byte
+}
+
+func (s *VersionService) RestoreVersion(documentID uuid.UUID, versionNumber int, userID uuid.UUID) (*RestoreResult, error) {
 	version, err := s.GetVersion(documentID, versionNumber)
 	if err != nil {
 		return nil, errors.New("version not found")
@@ -65,7 +80,7 @@ func (s *VersionService) RestoreVersion(documentID uuid.UUID, versionNumber int,
 		return nil, err
 	}
 
-	s.CreateVersion(documentID, userID, document.Title, document.Content)
+	_ = s.CreateVersion(documentID, userID, document.Title, document.Content)
 
 	document.Title = version.Title
 	document.Content = version.Content
@@ -76,7 +91,13 @@ func (s *VersionService) RestoreVersion(documentID uuid.UUID, versionNumber int,
 
 	s.db.Preload("User").First(&document, documentID)
 
-	return &document, nil
+	result := &RestoreResult{Document: &document}
+
+	if s.snapshotService != nil {
+		_ = s.snapshotService.ClearDocumentCRDTState(documentID)
+	}
+
+	return result, nil
 }
 
 func (s *VersionService) CompareVersions(documentID uuid.UUID, version1, version2 int) (map[string]interface{}, error) {
@@ -92,18 +113,20 @@ func (s *VersionService) CompareVersions(documentID uuid.UUID, version1, version
 
 	diff := map[string]interface{}{
 		"version_1": map[string]interface{}{
-			"number":     v1.VersionNumber,
-			"title":      v1.Title,
-			"content":    v1.Content,
-			"created_by": v1.User.Name,
-			"created_at": v1.CreatedAt,
+			"number":       v1.VersionNumber,
+			"title":        v1.Title,
+			"content":      v1.Content,
+			"created_by":   v1.User.Name,
+			"created_at":   v1.CreatedAt,
+			"has_snapshot": len(v1.YjsSnapshot) > 0,
 		},
 		"version_2": map[string]interface{}{
-			"number":     v2.VersionNumber,
-			"title":      v2.Title,
-			"content":    v2.Content,
-			"created_by": v2.User.Name,
-			"created_at": v2.CreatedAt,
+			"number":       v2.VersionNumber,
+			"title":        v2.Title,
+			"content":      v2.Content,
+			"created_by":   v2.User.Name,
+			"created_at":   v2.CreatedAt,
+			"has_snapshot": len(v2.YjsSnapshot) > 0,
 		},
 		"changes": map[string]interface{}{
 			"title_changed":   v1.Title != v2.Title,
@@ -112,4 +135,11 @@ func (s *VersionService) CompareVersions(documentID uuid.UUID, version1, version
 	}
 
 	return diff, nil
+}
+
+func SnapshotBase64(snapshot []byte) string {
+	if len(snapshot) == 0 {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(snapshot)
 }

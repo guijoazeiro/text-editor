@@ -18,6 +18,19 @@ services:
       timeout: 5s
       retries: 5
 
+  compactor:
+    image: node:20-alpine
+    container_name: docs_compactor
+    working_dir: /app
+    command: sh -c "npm install --omit=dev && node index.js"
+    volumes:
+      - ./compactor:/app
+    environment:
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -27,11 +40,14 @@ services:
       DATABASE_URL: postgres://user:password@postgres:5432/docs_db?sslmode=disable
       PORT: 8080
       ENVIRONMENT: development
+      COMPACTOR_URL: http://compactor:3001
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      compactor:
+        condition: service_started
     restart: unless-stopped
 
 volumes:

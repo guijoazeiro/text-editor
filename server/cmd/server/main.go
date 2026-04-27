@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -37,13 +38,25 @@ func main() {
 	yjsService := services.NewYjsService(db)
 	log.Println("Yjs service initialized")
 
-	hub := websocket.NewHub(yjsService)
+	snapshotService := services.NewSnapshotService(db, yjsService)
+	log.Println("Snapshot service initialized")
+
+	compactorURL := os.Getenv("COMPACTOR_URL")
+	if compactorURL == "" {
+		compactorURL = "http://localhost:3001"
+	}
+	compactorService := services.NewCompactorService(yjsService, snapshotService, services.CompactorConfig{
+		WorkerURL: compactorURL,
+	})
+	log.Printf("Compactor service initialized (worker=%s)", compactorURL)
+
+	hub := websocket.NewHub(yjsService, snapshotService, compactorService)
 	go hub.Run()
 	log.Println("WebSocket hub started")
 
 	jwtService := auth.NewJWT(cfg)
 
-	router := setupRouter(db, cfg, jwtService, hub, yjsService)
+	router := setupRouter(db, cfg, jwtService, hub, yjsService, snapshotService, compactorService)
 
 	port := cfg.Port
 	if port == "" {
@@ -56,7 +69,7 @@ func main() {
 	}
 }
 
-func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *websocket.Hub, yjsService *services.YjsService) *gin.Engine {
+func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *websocket.Hub, yjsService *services.YjsService, snapshotService *services.SnapshotService, compactorService *services.CompactorService) *gin.Engine {
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -72,15 +85,15 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	}))
 
 	authHandler := handlers.NewAuthHandler(db, jwtService)
-	documentHandler := handlers.NewDocumentHandler(db)
+	documentHandler := handlers.NewDocumentHandler(db, snapshotService)
 	collaboratorHandler := handlers.NewCollaboratorHandler(db)
 	notificationHandler := handlers.NewNotificationHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
-	versionHandler := handlers.NewVersionHandler(db)
+	versionHandler := handlers.NewVersionHandler(db, snapshotService, hub)
 	wsHandler := handlers.NewWebSocketHandler(hub, db, jwtService)
 
 	permissionService := services.NewPermissionService(db)
-	yjsHandler := handlers.NewYjsHandler(yjsService, permissionService)
+	yjsHandler := handlers.NewYjsHandler(yjsService, permissionService, snapshotService, compactorService)
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -119,6 +132,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 				protected.GET("/:id/active-users", wsHandler.GetActiveUsers)
 
 				protected.GET("/:id/yjs-updates", yjsHandler.GetUpdates)
+				protected.GET("/:id/yjs-state-vector", yjsHandler.GetStateVector)
 
 				protected.POST("/:id/collaborators", collaboratorHandler.AddCollaborator)
 				protected.GET("/:id/collaborators", collaboratorHandler.ListCollaborators)

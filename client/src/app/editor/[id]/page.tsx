@@ -46,12 +46,21 @@ export default function EditorPage() {
     token || "",
   );
 
-  const { ydoc, awareness, provider, synced, remoteUsers } = useYjsEditor({
+  const {
+    ydoc,
+    awareness,
+    provider,
+    synced,
+    localSynced,
+    remoteUsers,
+    applyReset,
+  } = useYjsEditor({
     documentId,
     ws: meta !== null ? ws : null,
     userId: user?.id,
     userName: user?.name,
     userColor,
+    token: token || undefined,
   });
 
   const editor = useEditor(
@@ -88,8 +97,62 @@ export default function EditorPage() {
   useEffect(() => {
     if (!editor || !meta) return;
     const canEdit = meta.permission === "owner" || meta.permission === "editor";
-    editor.setEditable(canEdit && synced);
-  }, [editor, synced, meta]);
+    editor.setEditable(canEdit && localSynced);
+  }, [editor, localSynced, meta]);
+
+  useEffect(() => {
+    if (!provider || !editor) return;
+
+    const onReset = (snapshot: Uint8Array) => {
+      const canEdit =
+        meta?.permission === "owner" || meta?.permission === "editor";
+      editor.setEditable(false);
+      applyReset(snapshot);
+      Promise.resolve().then(() => {
+        editor.setEditable(canEdit && localSynced);
+      });
+    };
+
+    provider.on("reset", onReset);
+    return () => {
+      provider.off("reset", onReset);
+    };
+  }, [provider, editor, meta, applyReset, localSynced]);
+
+  useEffect(() => {
+    if (!ws || !editor) return;
+
+    const handleContentReset = (
+      message: import("@/lib/websocket").WSMessage,
+    ) => {
+      const content = message?.data?.content;
+      if (!content) return;
+
+      const canEdit =
+        meta?.permission === "owner" || meta?.permission === "editor";
+      editor.setEditable(false);
+
+      try {
+        const parsed = JSON.parse(content);
+        editor.commands.setContent(parsed, true);
+      } catch {
+        editor.commands.setContent(`<p>${content}</p>`, true);
+      }
+
+      Promise.resolve().then(() => {
+        editor.setEditable(canEdit && localSynced);
+      });
+
+      console.log(
+        "[Editor] document-content-reset applied (legacy version restore)",
+      );
+    };
+
+    ws.on("document-content-reset", handleContentReset);
+    return () => {
+      ws.off("document-content-reset", handleContentReset);
+    };
+  }, [ws, editor, meta, localSynced]);
 
   useEffect(() => {
     if (!synced || !editor || !meta || seededRef.current) return;
@@ -223,7 +286,7 @@ export default function EditorPage() {
                 className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-gray-400"}`}
               />
               <span className="text-sm text-gray-600">
-                {isConnected ? "Connected" : "Disconnected"}
+                {isConnected ? "Connected" : "Offline (Saved locally)"}
               </span>
             </div>
 

@@ -7,7 +7,6 @@ import * as decoding from "lib0/decoding";
 import { WebSocketClient, WSMessage } from "./websocket";
 
 export class YjsWebSocketProvider extends Observable<string> {
-  public awareness: awarenessProtocol.Awareness;
   private _synced = false;
 
   private _initReceived = false;
@@ -16,11 +15,15 @@ export class YjsWebSocketProvider extends Observable<string> {
   private _syncTimeout: ReturnType<typeof setTimeout> | null = null;
   private _peerSyncStarted = false;
 
+  private _serverStateVector: Uint8Array | null = null;
+
   constructor(
     private documentId: string,
     private doc: Y.Doc,
     private ws: WebSocketClient,
     public awareness: awarenessProtocol.Awareness,
+    private apiToken?: string,
+    private apiBaseUrl: string = "/api",
   ) {
     super();
 
@@ -37,6 +40,9 @@ export class YjsWebSocketProvider extends Observable<string> {
     this._synced = false;
     this._initReceived = false;
     this._peerSyncStarted = false;
+    this._serverStateVector = null;
+
+    this._fetchStateVector().catch(() => {});
 
     if (this._initTimeout) clearTimeout(this._initTimeout);
     this._initTimeout = setTimeout(() => {
@@ -46,6 +52,27 @@ export class YjsWebSocketProvider extends Observable<string> {
         this._startPeerSync();
       }
     }, 400);
+  }
+
+  private async _fetchStateVector(): Promise<void> {
+    if (!this.apiToken) return;
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+    const url = `${API_URL}${this.apiBaseUrl}/documents/${this.documentId}/yjs-state-vector`;
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.apiToken}` },
+      });
+      if (res.status === 204 || !res.ok) return;
+      const json = await res.json();
+      const svB64: string | undefined = json?.data?.state_vector;
+      if (!svB64) return;
+      const binaryString = atob(svB64);
+      const sv = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++)
+        sv[i] = binaryString.charCodeAt(i);
+      this._serverStateVector = sv;
+      console.log(`[Yjs] Fetched server state vector (${sv.byteLength} bytes)`);
+    } catch {}
   }
 
   private _handleYjsInit(data: unknown) {
@@ -59,6 +86,8 @@ export class YjsWebSocketProvider extends Observable<string> {
     }
 
     const rawBatch = payload["updates"];
+    const serverDoc = new Y.Doc();
+
     if (rawBatch && Array.isArray(rawBatch) && rawBatch.length > 0) {
       try {
         const arrays = (rawBatch as unknown[])
@@ -79,18 +108,29 @@ export class YjsWebSocketProvider extends Observable<string> {
 
         if (arrays.length === 0) {
           console.log("[Yjs] All init updates were invalid (old format?)");
-          this._startPeerSync();
-          return;
-        }
+        } else {
+          const merged = Y.mergeUpdates(arrays);
 
-        const merged = Y.mergeUpdates(arrays);
-        Y.applyUpdate(this.doc, merged, this);
-        console.log(
-          `[Yjs] Applied init snapshot (${arrays.length} updates merged)`,
-        );
+          Y.applyUpdate(serverDoc, merged);
+
+          Y.applyUpdate(this.doc, merged, this);
+          console.log(
+            `[Yjs] Applied init snapshot (${arrays.length} updates merged)`,
+          );
+        }
       } catch (err) {
         console.error("[Yjs] Error applying init snapshot:", err);
       }
+    }
+
+    const serverStateVector = Y.encodeStateVector(serverDoc);
+    const missingUpdates = Y.encodeStateAsUpdate(this.doc, serverStateVector);
+
+    if (missingUpdates.byteLength > 2) {
+      console.log(
+        `[Yjs] Found offline edits (${missingUpdates.byteLength} bytes). Syncing to server...`,
+      );
+      this._sendUpdate(missingUpdates);
     }
 
     this._startPeerSync();
@@ -137,6 +177,14 @@ export class YjsWebSocketProvider extends Observable<string> {
     this.ws.on("yjs-awareness", (message: WSMessage) => {
       this._handleAwarenessUpdate(message.data);
     });
+
+    this.ws.on("yjs-awareness-off", (message: WSMessage) => {
+      this._handleAwarenessOff(message);
+    });
+
+    this.ws.on("yjs-reset", (message: WSMessage) => {
+      this._handleYjsReset(message);
+    });
   }
 
   private _setupAwarenessListeners() {
@@ -159,7 +207,14 @@ export class YjsWebSocketProvider extends Observable<string> {
   private _sendSyncStep1() {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, syncProtocol.messageYjsSyncStep1);
-    syncProtocol.writeSyncStep1(encoder, this.doc);
+    if (this._serverStateVector) {
+      encoding.writeVarUint8Array(encoder, this._serverStateVector);
+      console.log(
+        "[Yjs] SyncStep1 sent with server state vector (optimised diff)",
+      );
+    } else {
+      syncProtocol.writeSyncStep1(encoder, this.doc);
+    }
     this._sendBytes(encoding.toUint8Array(encoder));
   }
 
@@ -215,6 +270,7 @@ export class YjsWebSocketProvider extends Observable<string> {
         case syncProtocol.messageYjsSyncStep1: {
           const encoder = encoding.createEncoder();
           encoding.writeVarUint(encoder, syncProtocol.messageYjsSyncStep2);
+          // @ts-ignore — @types/y-protocols declares 3rd arg as Uint8Array but runtime expects Decoder
           syncProtocol.writeSyncStep2(encoder, this.doc, decoder);
           this._sendBytes(encoding.toUint8Array(encoder));
           break;
@@ -269,6 +325,49 @@ export class YjsWebSocketProvider extends Observable<string> {
     }
   }
 
+  private _handleAwarenessOff(message: WSMessage) {
+    const userId = message.user_id;
+    if (!userId) return;
+
+    const clientIdsToRemove: number[] = [];
+    this.awareness.getStates().forEach((state, clientId) => {
+      if (state?.user?.id === userId) {
+        clientIdsToRemove.push(clientId);
+      }
+    });
+
+    if (clientIdsToRemove.length > 0) {
+      awarenessProtocol.removeAwarenessStates(
+        this.awareness,
+        clientIdsToRemove,
+        "server-disconnect",
+      );
+      console.log(
+        `[Yjs] Removed awareness for disconnected user=${userId} (clientIds=${clientIdsToRemove.join(",")})`,
+      );
+    }
+  }
+
+  private _handleYjsReset(message: WSMessage) {
+    const snapshotB64 = message.data?.["snapshot"] as string | undefined;
+    if (!snapshotB64) {
+      console.warn("[Yjs] Received yjs-reset without snapshot, ignoring");
+      return;
+    }
+
+    try {
+      const binaryString = atob(snapshotB64);
+      const snapshot = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        snapshot[i] = binaryString.charCodeAt(i);
+      }
+      console.log(`[Yjs] Received yjs-reset (${snapshot.byteLength} bytes)`);
+      this.emit("reset", [snapshot]);
+    } catch (err) {
+      console.error("[Yjs] Failed to decode yjs-reset snapshot:", err);
+    }
+  }
+
   public setAwarenessField(field: string, value: unknown) {
     this.awareness.setLocalState({
       ...(this.awareness.getLocalState() ?? {}),
@@ -286,5 +385,4 @@ export class YjsWebSocketProvider extends Observable<string> {
     this.awareness.destroy();
     super.destroy();
   }
-
 }
