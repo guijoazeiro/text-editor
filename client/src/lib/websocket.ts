@@ -8,7 +8,10 @@ export type MessageType =
   | "awareness"
   | "yjs-sync"
   | "yjs-awareness"
-  | "yjs-init";
+  | "yjs-awareness-off"
+  | "yjs-reset"
+  | "yjs-init"
+  | "document-content-reset";
 
 export interface WSMessage {
   type: MessageType;
@@ -83,8 +86,6 @@ export class WebSocketClient {
             if (handlers && handlers.size > 0) {
               handlers.forEach((handler) => handler(message));
             } else {
-              // Buffer messages that arrive before handlers are registered
-              // (e.g. yjs-init arrives before YjsWebSocketProvider is created)
               if (!this.pendingMessages.has(message.type)) {
                 this.pendingMessages.set(message.type, []);
               }
@@ -153,7 +154,6 @@ export class WebSocketClient {
     }
     this.messageHandlers.get(type)!.add(handler);
 
-    // Replay any messages that arrived before this handler was registered
     const pending = this.pendingMessages.get(type);
     if (pending && pending.length > 0) {
       this.pendingMessages.delete(type);

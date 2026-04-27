@@ -1,15 +1,18 @@
 package websocket
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
+	yjsdecoder "github.com/guijoazeiro/text-editor/tree/main/server/internal/yjs"
 )
 
 type Message struct {
@@ -20,21 +23,29 @@ type Message struct {
 }
 
 type Hub struct {
-	Clients    map[uuid.UUID]map[*Client]bool
-	Broadcast  chan *Message
-	Register   chan *Client
-	Unregister chan *Client
-	mu         sync.RWMutex
-	yjsService *services.YjsService
+	Clients          map[uuid.UUID]map[*Client]bool
+	Broadcast        chan *Message
+	Register         chan *Client
+	Unregister       chan *Client
+	mu               sync.RWMutex
+	yjsService       *services.YjsService
+	snapshotService  *services.SnapshotService
+	compactorService *services.CompactorService
 }
 
-func NewHub(yjsService *services.YjsService) *Hub {
+func NewHub(
+	yjsService *services.YjsService,
+	snapshotService *services.SnapshotService,
+	compactorService *services.CompactorService,
+) *Hub {
 	return &Hub{
-		Clients:    make(map[uuid.UUID]map[*Client]bool),
-		Broadcast:  make(chan *Message, 256),
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
-		yjsService: yjsService,
+		Clients:          make(map[uuid.UUID]map[*Client]bool),
+		Broadcast:        make(chan *Message, 256),
+		Register:         make(chan *Client),
+		Unregister:       make(chan *Client),
+		yjsService:       yjsService,
+		snapshotService:  snapshotService,
+		compactorService: compactorService,
 	}
 }
 
@@ -58,6 +69,7 @@ func (h *Hub) Run() {
 			h.notifyUserJoined(client)
 
 		case client := <-h.Unregister:
+			var docBecameIdle bool
 			h.mu.Lock()
 			if clients, ok := h.Clients[client.DocumentID]; ok {
 				if _, exists := clients[client]; exists {
@@ -66,6 +78,7 @@ func (h *Hub) Run() {
 
 					if len(clients) == 0 {
 						delete(h.Clients, client.DocumentID)
+						docBecameIdle = true
 					}
 				}
 			}
@@ -74,6 +87,22 @@ func (h *Hub) Run() {
 			log.Printf("Client unregistered: user=%s doc=%s", client.UserName, client.DocumentID)
 
 			h.notifyUserLeft(client)
+
+			if docBecameIdle && h.compactorService != nil {
+				docID := client.DocumentID
+				go func() {
+					time.Sleep(5 * time.Second)
+					h.mu.RLock()
+					_, stillActive := h.Clients[docID]
+					h.mu.RUnlock()
+					if stillActive {
+						return
+					}
+					if err := h.compactorService.ForceCompact(docID); err != nil {
+						log.Printf("[Compactor] idle compaction failed for doc=%s: %v", docID, err)
+					}
+				}()
+			}
 
 		case message := <-h.Broadcast:
 			h.tryPersistYjsUpdate(message)
@@ -169,6 +198,12 @@ func (h *Hub) notifyUserLeft(client *Client) {
 
 	data, _ := json.Marshal(leaveMsg)
 
+	awarenessOffMsg := models.WSMessage{
+		Type:   models.MessageTypeYjsAwarenessOff,
+		UserID: client.UserID.String(),
+	}
+	awarenessOffData, _ := json.Marshal(awarenessOffMsg)
+
 	h.mu.RLock()
 	clients := h.Clients[client.DocumentID]
 	h.mu.RUnlock()
@@ -176,6 +211,11 @@ func (h *Hub) notifyUserLeft(client *Client) {
 	for c := range clients {
 		select {
 		case c.Send <- data:
+		default:
+		}
+
+		select {
+		case c.Send <- awarenessOffData:
 		default:
 		}
 	}
@@ -191,52 +231,139 @@ func (h *Hub) GetActiveUsers(documentID uuid.UUID) int {
 	return 0
 }
 
+func (h *Hub) BroadcastYjsReset(documentID uuid.UUID, snapshot []byte) {
+	encoded := base64.StdEncoding.EncodeToString(snapshot)
+
+	msg := models.WSMessage{
+		Type: models.MessageTypeYjsReset,
+		Data: map[string]interface{}{
+			"snapshot": encoded,
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[YjsReset] failed to marshal reset message for doc=%s: %v", documentID, err)
+		return
+	}
+
+	h.mu.RLock()
+	clients := h.Clients[documentID]
+	h.mu.RUnlock()
+
+	sent := 0
+	for c := range clients {
+		select {
+		case c.Send <- data:
+			sent++
+		default:
+			log.Printf("[YjsReset] send buffer full for user=%s, skipping", c.UserName)
+		}
+	}
+	log.Printf("[YjsReset] broadcast reset to %d peers for doc=%s", sent, documentID)
+}
+
+func (h *Hub) BroadcastDocumentContentReset(documentID uuid.UUID, content, title string) {
+	msg := models.WSMessage{
+		Type: models.MessageTypeDocumentContentReset,
+		Data: map[string]interface{}{
+			"content": content,
+			"title":   title,
+		},
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[ContentReset] failed to marshal message for doc=%s: %v", documentID, err)
+		return
+	}
+
+	h.mu.RLock()
+	clients := h.Clients[documentID]
+	h.mu.RUnlock()
+
+	sent := 0
+	for c := range clients {
+		select {
+		case c.Send <- data:
+			sent++
+		default:
+			log.Printf("[ContentReset] send buffer full for user=%s, skipping", c.UserName)
+		}
+	}
+	log.Printf("[ContentReset] broadcast content reset to %d peers for doc=%s", sent, documentID)
+}
+
 func (h *Hub) sendPersistedYjsState(client *Client) {
-	if h.yjsService == nil {
+	if h.snapshotService == nil && h.yjsService == nil {
+		return
+	}
+
+	if h.snapshotService != nil {
+		state, err := h.snapshotService.GetStateForClient(client.DocumentID)
+		if err != nil {
+			log.Printf("[Yjs] failed to load state for user=%s doc=%s: %v",
+				client.UserName, client.DocumentID, err)
+			return
+		}
+
+		var allUpdates [][]byte
+		if len(state.Snapshot) > 0 {
+			allUpdates = append(allUpdates, state.Snapshot)
+		}
+		allUpdates = append(allUpdates, state.DeltaUpdates...)
+
+		if len(allUpdates) == 0 {
+			return
+		}
+
+		msg := models.WSMessage{
+			Type: models.MessageTypeYjsInit,
+			Data: map[string]interface{}{"updates": allUpdates},
+		}
+		data, err := json.Marshal(msg)
+		if err != nil {
+			log.Printf("[Yjs] failed to marshal state for user=%s: %v", client.UserName, err)
+			return
+		}
+		select {
+		case client.Send <- data:
+			log.Printf("[Yjs] sent state (snapshot=%v, delta=%d) to user=%s doc=%s",
+				len(state.Snapshot) > 0, len(state.DeltaUpdates), client.UserName, client.DocumentID)
+		default:
+			log.Printf("[Yjs] send buffer full for user=%s", client.UserName)
+		}
 		return
 	}
 
 	updates, err := h.yjsService.GetUpdates(client.DocumentID)
 	if err != nil {
-		log.Printf("Failed to load persisted Yjs updates: %v", err)
+		log.Printf("[Yjs] failed to load updates: %v", err)
 		return
 	}
-
 	if len(updates) == 0 {
 		return
 	}
-
 	allUpdates := make([][]byte, 0, len(updates))
 	for _, u := range updates {
 		if len(u.Update) > 0 {
 			allUpdates = append(allUpdates, u.Update)
 		}
 	}
-
 	if len(allUpdates) == 0 {
-		log.Printf("All persisted updates were invalid for doc=%s", client.DocumentID)
 		return
 	}
-
 	msg := models.WSMessage{
 		Type: models.MessageTypeYjsInit,
-		Data: map[string]interface{}{
-			"updates": allUpdates,
-		},
+		Data: map[string]interface{}{"updates": allUpdates},
 	}
-
 	data, err := json.Marshal(msg)
 	if err != nil {
-		log.Printf("Failed to marshal Yjs snapshot: %v", err)
 		return
 	}
-
 	select {
 	case client.Send <- data:
-		log.Printf("Sent Yjs snapshot (%d updates, %d valid) to user=%s doc=%s",
-			len(updates), len(allUpdates), client.UserName, client.DocumentID)
+		log.Printf("[Yjs] sent %d updates to user=%s doc=%s", len(allUpdates), client.UserName, client.DocumentID)
 	default:
-		log.Printf("Client send buffer full while sending Yjs snapshot")
+		log.Printf("[Yjs] send buffer full for user=%s", client.UserName)
 	}
 }
 
@@ -271,6 +398,7 @@ func (h *Hub) tryPersistYjsUpdate(message *Message) {
 			}
 		}
 	default:
+		log.Printf("[Yjs] unexpected update payload type: %T", updateData)
 		return
 	}
 
@@ -278,19 +406,40 @@ func (h *Hub) tryPersistYjsUpdate(message *Message) {
 		return
 	}
 
-	msgType := updateBytes[0]
-	if msgType != 2 {
+	if updateBytes[0] != 2 {
 		return
 	}
 
 	rawUpdate, err := stripSyncEnvelope(updateBytes)
 	if err != nil {
-		log.Printf("Failed to strip sync envelope: %v", err)
+		log.Printf("[Yjs] failed to strip sync envelope: %v", err)
 		return
 	}
 
-	if err := h.yjsService.SaveUpdate(message.DocumentID, rawUpdate); err != nil {
-		log.Printf("Failed to persist Yjs update: %v", err)
+	meta, err := yjsdecoder.DecodeUpdateMeta(rawUpdate)
+	if err != nil {
+		log.Printf("[Yjs] rejecting malformed update from conn=%s doc=%s: %v",
+			message.SenderConnID, message.DocumentID, err)
+		return
+	}
+
+	if meta.IsEmpty {
+		return
+	}
+
+	if err := h.yjsService.SaveUpdate(message.DocumentID, rawUpdate, meta.LamportTS, meta.ClientID); err != nil {
+		log.Printf("[Yjs] failed to persist update (lamport=%d client=%d doc=%s): %v",
+			meta.LamportTS, meta.ClientID, message.DocumentID, err)
+		return
+	}
+
+	if h.compactorService != nil {
+		docID := message.DocumentID
+		go func() {
+			if err := h.compactorService.MaybeCompact(docID); err != nil {
+				log.Printf("[Compactor] MaybeCompact failed for doc=%s: %v", docID, err)
+			}
+		}()
 	}
 }
 
