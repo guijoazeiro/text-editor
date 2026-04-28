@@ -18,6 +18,7 @@ import Navbar from "@/components/Navbar";
 import EditorToolbar from "@/components/EditorToolbar";
 import UserPresence from "@/components/UserPresence";
 import { VersionHistory } from "@/components/editor/VersionHistory";
+import { CollaboratorsModal } from "@/components/editor/CollaboratorsModal";
 
 interface DocMeta {
   title: string;
@@ -52,6 +53,7 @@ export default function EditorPage() {
     setHistoryOpen(true);
     fetchVersions();
   };
+  const [shareOpen, setShareOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
   const documentFetchedRef = useRef(false);
@@ -358,6 +360,26 @@ export default function EditorPage() {
               </svg>
             </button>
 
+            <button
+              onClick={() => setShareOpen(true)}
+              title="Share document"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.75}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                />
+              </svg>
+            </button>
+
             {!canEdit && (
               <span className="px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs">
                 View Only
@@ -387,7 +409,6 @@ export default function EditorPage() {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="mt-4 text-center text-xs text-[var(--text-muted)] space-y-1">
           {meta?.permission && (
             <div>
@@ -413,6 +434,13 @@ export default function EditorPage() {
         loading={versionsLoading}
         restoring={restoring}
         onRestore={restoreVersion}
+      />
+
+      <CollaboratorsModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        documentId={documentId}
+        isOwner={meta?.permission === "owner"}
       />
     </div>
   );
