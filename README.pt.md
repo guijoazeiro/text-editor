@@ -2,13 +2,15 @@
 
 Editor de documentos colaborativo inspirado no Google Docs, construído do zero com foco em aprender e demonstrar tecnologias reais de sincronização distribuída (**CRDT via Yjs**) e comunicação em tempo real (**WebSockets**).
 
+> 📖 [Read in English](./README.md)
+
 ---
 
 ## Stack
 
 | Camada | Tecnologia |
 |--------|-----------|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS |
+| Frontend | Next.js 16, TypeScript, Tailwind CSS v4 |
 | Editor | TipTap v2 + extensões de colaboração |
 | CRDT | Yjs + y-protocols |
 | Tempo real | WebSocket (gorilla/websocket) |
@@ -25,6 +27,7 @@ Editor de documentos colaborativo inspirado no Google Docs, construído do zero 
 - Senhas com bcrypt
 - Middleware de proteção de rotas (HTTP e WebSocket)
 - Autenticação WebSocket via **subprotocol** (`Sec-WebSocket-Protocol`) — mais seguro que query params, token não aparece em logs
+- Verificação de expiração do JWT na reidratação do store — sessões expiradas são limpas automaticamente ao carregar a página
 
 ### Documentos
 - CRUD completo com owner automático
@@ -38,8 +41,8 @@ Editor de documentos colaborativo inspirado no Google Docs, construído do zero 
 - Viewer: somente leitura
 
 ### Colaboração
-- Adicionar colaboradores por email
-- Atualizar permissão de colaboradores
+- Adicionar colaboradores por email com seletor de permissão (editor / viewer)
+- Atualizar permissão de colaboradores inline
 - Remover colaboradores
 - Links públicos de compartilhamento com permissão configurável e expiração opcional
 
@@ -48,7 +51,8 @@ Editor de documentos colaborativo inspirado no Google Docs, construído do zero 
 - Ao ter permissão alterada
 - Ao colaborador editar o documento (owner recebe)
 - Marcar como lida individualmente ou em lote
-- Contador de não lidas
+- Badge de não lidas na navbar
+- Dropdown em tempo real acessível de qualquer página
 
 ### Histórico e versionamento
 - Histórico de edições: quem editou, quando e o que mudou (diff)
@@ -56,12 +60,13 @@ Editor de documentos colaborativo inspirado no Google Docs, construído do zero 
 - Versionamento com snapshots completos do documento
 - Restaurar versão anterior (salva versão atual antes de restaurar)
 - Comparar duas versões (diff)
+- Painel de histórico no editor (últimas 20 versões, slide-in pela direita)
 
 ### WebSocket — Presença em tempo real
 - Rooms por documento: cada documento tem sua sala isolada
 - Presence tracking: join/leave automático ao conectar/desconectar
 - Broadcast de eventos para todos os clientes da sala
-- Reconexão automática com backoff (até 5 tentativas)
+- Reconexão automática com backoff exponencial (até 5 tentativas)
 - Autenticação via subprotocol JWT
 
 ### CRDT com Yjs
@@ -70,9 +75,10 @@ Editor de documentos colaborativo inspirado no Google Docs, construído do zero 
 **Arquitetura:**
 ```
 Cliente A (Yjs doc) ──┐
-                      ├── WebSocket ──► Go Backend (relay) ──► PostgreSQL
+                       ├── WebSocket ──► Go Backend (relay) ──► PostgreSQL
 Cliente B (Yjs doc) ──┘                     │
-                                            └── yjs_updates table
+                                            ├── yjs_updates table
+                                            └── yjs_snapshots table
 ```
 
 O backend Go **não precisa entender** o conteúdo Yjs — ele é um relay puro. Isso é intencional: a lógica de merge vive nos clientes.
@@ -85,6 +91,8 @@ O backend Go **não precisa entender** o conteúdo Yjs — ele é um relay puro.
 5. Reconexão → repete a partir do passo 1
 
 **Persistência:** O backend salva cada update Yjs na tabela `yjs_updates` (bytea). Quando um novo cliente conecta, o hub envia todos os updates salvos para ele reconstruir o estado completo — assim o documento persiste mesmo sem nenhum peer online.
+
+**Compactação:** Um worker Node.js (`compactor/`) executa `Y.mergeUpdates` para fundir updates individuais em um único snapshot quando um threshold de contagem ou tamanho é atingido. A compactação também roda quando o último peer desconecta, mantendo `yjs_updates` sem crescimento ilimitado.
 
 **Rich text com TipTap:**
 - O TipTap usa `Y.XmlFragment("content")` como CRDT subjacente (não `Y.Text`)
@@ -99,6 +107,18 @@ O backend Go **não precisa entender** o conteúdo Yjs — ele é um relay puro.
 - Tooltips com nome e status "editing" nos avatares
 - Dot pulsante no avatar quando o usuário está com cursor ativo
 
+### UI e Design System
+- **Dark / Light mode** com toggle persistente (localStorage via Zustand)
+- Theming baseado em variáveis CSS — todos os componentes usam `var(--bg-base)`, `var(--text-primary)`, etc.
+- Fonte **Inter** (Google Fonts via `next/font`)
+- Skeleton loading no dashboard de documentos
+- Páginas de login e signup em duas colunas (painel escuro de branding + painel de formulário)
+- Sino de notificações com badge de não lidas na navbar
+- Página de perfil (`/profile`) com edição inline de nome e logout
+- Toasts de feedback para todas as ações assíncronas (sucesso / erro)
+- Painel de histórico de versões com modal de confirmação antes de restaurar
+- Modal de colaboradores com convite por email, seletor de permissão, gerenciamento de link público
+
 ---
 
 ## Estrutura do projeto
@@ -108,28 +128,56 @@ text-editor/
 ├── client/                     # Next.js frontend
 │   └── src/
 │       ├── app/
-│       │   ├── dashboard/      # Lista de documentos
+│       │   ├── dashboard/      # Lista de documentos com skeleton loading
 │       │   ├── editor/[id]/    # Editor principal
-│       │   ├── login/
-│       │   └── signup/
+│       │   ├── login/          # Layout duas colunas
+│       │   ├── signup/         # Layout duas colunas
+│       │   └── profile/        # Página de perfil do usuário
 │       ├── components/
-│       │   ├── EditorToolbar.tsx     # Barra de formatação TipTap
-│       │   ├── Navbar.tsx
-│       │   ├── RemoteCursors.tsx     # Cursors e seleções remotas
-│       │   ├── TiptapEditor.tsx      # Wrapper do editor
-│       │   └── UserPresence.tsx      # Avatares online
+│       │   ├── editor/
+│       │   │   ├── EditorToolbar.tsx       # Barra de formatação TipTap
+│       │   │   ├── VersionHistory.tsx      # Painel de histórico slide-in
+│       │   │   └── CollaboratorsModal.tsx  # Modal de compartilhamento
+│       │   ├── layout/
+│       │   │   ├── Navbar.tsx              # Com toggle de tema, notificações, avatar
+│       │   │   └── ThemeProvider.tsx       # Aplica .dark no <html>
+│       │   ├── notifications/
+│       │   │   └── NotificationBell.tsx    # Dropdown com badge de não lidas
+│       │   ├── presence/
+│       │   │   ├── RemoteCursors.tsx       # Cursors e seleções remotas
+│       │   │   └── UserPresence.tsx        # Avatares online
+│       │   └── ui/
+│       │       ├── Button.tsx
+│       │       ├── Input.tsx               # Theme-aware, com toggle de senha
+│       │       ├── Modal.tsx
+│       │       ├── Skeleton.tsx            # DocumentCardSkeleton
+│       │       └── Toast.tsx
 │       ├── hooks/
-│       │   ├── useWebSocket.ts       # Conexão WebSocket + presença
-│       │   └── useYjsEditor.ts       # Yjs doc + provider + sync state
+│       │   ├── useWebSocket.ts             # Conexão WebSocket + presença
+│       │   ├── useVersionHistory.ts        # Buscar + restaurar versões
+│       │   └── useYjsEditor.ts             # Yjs doc + provider + sync state
 │       ├── lib/
-│       │   ├── api.ts                # Cliente HTTP (axios)
-│       │   ├── websocket.ts          # WebSocketClient class
-│       │   └── yjs-provider.ts       # Protocolo de sync Yjs
-│       └── store/
-│           └── authStore.ts          # Zustand (JWT + user)
+│       │   ├── api.ts                      # Todas as chamadas de API
+│       │   ├── axios.ts                    # Instância axios + interceptor de auth
+│       │   ├── utils.ts                    # Helper cn()
+│       │   ├── websocket.ts                # Classe WebSocketClient
+│       │   └── yjs-provider.ts             # Protocolo de sync Yjs
+│       ├── store/
+│       │   ├── authStore.ts                # Zustand (JWT + user + isHydrated)
+│       │   ├── themeStore.ts               # Dark/light mode (persistido)
+│       │   └── toastStore.ts               # Toasts globais
+│       └── types/
+│           ├── collaborator.ts
+│           ├── document.ts
+│           ├── notification.ts
+│           ├── user.ts
+│           ├── version.ts
+│           └── index.ts
 │
 └── server/                     # Go backend
     ├── cmd/server/main.go
+    ├── compactor/              # Worker Node.js para operações de merge Yjs
+    │   └── index.js            # Endpoints /compact, /state-vector, /health
     ├── internal/
     │   ├── auth/               # JWT + bcrypt
     │   ├── config/
@@ -269,6 +317,12 @@ Acesse `http://localhost:3000`.
 
 **Autenticação WebSocket via subprotocol:** Browsers não permitem headers customizados em conexões WebSocket. A solução comum (e insegura) é passar o token como query param — ele aparece em logs de servidor, logs de proxy, histórico do browser. O subprotocol (`Sec-WebSocket-Protocol`) é um header WebSocket padrão que passa no handshake sem aparecer na URL.
 
-**Compactação CRDT com worker Node.js:** O Go não tem uma implementação nativa de Yjs. Para mesclar updates (`Y.mergeUpdates`) e gerar state vectors, um worker Node.js isolado (`compactor/`) expõe endpoints HTTP consumidos pelo backend Go. Isso evita WebAssembly e mantém cada responsabilidade em sua linguagem natural.
+**Compactação CRDT com worker Node.js:** O Go não tem uma implementação nativa de Yjs. Para mesclar updates (`Y.mergeUpdates`) e gerar state vectors, um worker Node.js isolado (`compactor/`) expõe endpoints HTTP consumidos pelo backend Go. Isso evita WebAssembly e mantém cada responsabilidade em sua linguagem natural. O compactor aplica uma política de duplo threshold: compactar quando os updates excedem um limite de contagem **ou** de tamanho total. A compactação idle também roda quando o último peer desconecta.
 
-**Restore de versão via `document-content-reset`:** Restaurar uma versão via snapshot CRDT binário não funciona para time-travel — `Y.applyUpdate` é aditivo, e operações com Lamport clock mais alto sempre vencem. A solução correta é transmitir o conteúdo JSON da versão via WebSocket (`document-content-reset`) e o editor usa `editor.commands.setContent()`, que gera novas operações Yjs com o clock máximo atual — sobrescrevendo o conteúdo antigo em todos os peers.
+**Restore de versão via `document-content-reset`:** Restaurar uma versão via snapshot CRDT binário não funciona para time-travel — `Y.applyUpdate` é aditivo, e operações com Lamport clock mais alto sempre vencem. A solução correta é transmitir o conteúdo JSON da versão via WebSocket (`document-content-reset`) e cada cliente chama `editor.commands.setContent()`, que gera novas operações Yjs com o clock máximo atual — sobrescrevendo o conteúdo antigo em todos os peers. O estado CRDT do servidor também é limpo no restore para que clientes que conectem depois partam de um estado limpo.
+
+**Ordering causal com Lamport timestamps:** O backend decodifica o formato binário Yjs v1 em Go (sem instanciar um Y.Doc) para extrair o `LamportTS` e o `ClientID` de cada update. Esses valores são indexados em `yjs_updates` para garantir ordering causal ao reproduzir o histórico para novos peers, e para determinar corretamente o delta a enviar durante reconexão.
+
+**Theming via variáveis CSS:** Em vez de classes utilitárias Tailwind de dark mode espalhadas pelos componentes, todos os tokens de cor são definidos como variáveis CSS em `globals.css` (ex: `--bg-base`, `--text-primary`, `--border`). O componente `ThemeProvider` alterna a classe `.dark` no `<html>`, que troca os valores das variáveis. Isso significa que todo componente é theme-aware por padrão, e adicionar um terceiro tema (ex: alto contraste) requer alterar apenas as definições das variáveis CSS.
+
+**Arquitetura frontend type-safe:** Todos os shapes de resposta da API são definidos em `src/types/` (document, user, collaborator, notification, version). O `authStore` (Zustand + persist) valida a expiração do JWT na reidratação e limpa sessões expiradas antes de qualquer route guard executar — prevenindo estado de auth desatualizado após um longo período inativo.

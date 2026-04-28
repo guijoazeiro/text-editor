@@ -1,11 +1,6 @@
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-}
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import type { User } from "@/types";
 
 interface AuthState {
   user: User | null;
@@ -16,6 +11,23 @@ interface AuthState {
   logout: () => void;
   initialize: () => void;
   setHydrated: (hydrated: boolean) => void;
+}
+
+function getTokenExpiry(token: string): number | null {
+  try {
+    const payload = token.split(".")[1];
+    const decoded = JSON.parse(atob(payload));
+    return typeof decoded.exp === "number" ? decoded.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+function isTokenValid(token: string | null): boolean {
+  if (!token) return false;
+  const exp = getTokenExpiry(token);
+  if (exp === null) return true;
+  return Date.now() / 1000 < exp - 30;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -35,9 +47,11 @@ export const useAuthStore = create<AuthState>()(
       },
 
       initialize: () => {
-        const state = get();
-        if (state.token && state.user) {
+        const { token, user } = get();
+        if (token && user && isTokenValid(token)) {
           set({ isAuthenticated: true });
+        } else if (token && !isTokenValid(token)) {
+          set({ token: null, user: null, isAuthenticated: false });
         }
       },
 
@@ -46,14 +60,18 @@ export const useAuthStore = create<AuthState>()(
       },
     }),
     {
-      name: 'auth-storage',
+      name: "auth-storage",
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
-        if (state?.token && state?.user) {
+        if (state?.token && state?.user && isTokenValid(state.token)) {
           state.isAuthenticated = true;
+        } else if (state?.token && !isTokenValid(state.token)) {
+          state.token = null;
+          state.user = null;
+          state.isAuthenticated = false;
         }
       },
-    }
-  )
+    },
+  ),
 );

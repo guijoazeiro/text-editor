@@ -1,90 +1,139 @@
 @import "tailwindcss";
 
+/* ─── Enable .dark class-based dark mode ─────────────────────────────────────
+   Tailwind v4: register a custom variant so dark: utilities respond to .dark
+   on any ancestor element (we apply it to <html>).                           */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── Design tokens (light mode defaults) ────────────────────────────────────*/
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-base:          #f1f5f9;   /* slate-100 */
+  --bg-card:          #ffffff;
+  --bg-nav:           rgba(255, 255, 255, 0.85);
+  --bg-toolbar:       #f8fafc;
+  --bg-input:         #ffffff;
+
+  --border:           rgba(0, 0, 0, 0.08);
+  --border-strong:    rgba(0, 0, 0, 0.12);
+
+  --text-primary:     #0f172a;   /* slate-900 */
+  --text-secondary:   #475569;   /* slate-500 */
+  --text-muted:       #94a3b8;   /* slate-400 */
+  --text-placeholder: #94a3b8;
+
+  --editor-text:      #1e293b;
+  --editor-heading:   #0f172a;
+  --editor-code-bg:   #f1f5f9;
+  --editor-code-fg:   #0369a1;
+  --editor-quote:     #475569;
+  --editor-hr:        rgba(0, 0, 0, 0.10);
+  --editor-pre-bg:    #1e293b;
+
+  --accent:           #3b82f6;
+  --accent-hover:     #2563eb;
+
+  --font-sans: var(--font-inter), system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ─── Dark mode overrides ────────────────────────────────────────────────────*/
+.dark {
+  --bg-base:          #020817;
+  --bg-card:          #0f172a;
+  --bg-nav:           rgba(2, 8, 23, 0.85);
+  --bg-toolbar:       rgba(15, 23, 42, 0.6);
+  --bg-input:         rgba(255, 255, 255, 0.04);
+
+  --border:           rgba(255, 255, 255, 0.07);
+  --border-strong:    rgba(255, 255, 255, 0.12);
+
+  --text-primary:     #e2e8f0;   /* slate-200 */
+  --text-secondary:   #64748b;   /* slate-500 */
+  --text-muted:       #475569;   /* slate-600 */
+  --text-placeholder: #334155;
+
+  --editor-text:      #cbd5e1;
+  --editor-heading:   #f1f5f9;
+  --editor-code-bg:   rgba(59, 130, 246, 0.10);
+  --editor-code-fg:   #93c5fd;
+  --editor-quote:     #94a3b8;
+  --editor-hr:        rgba(255, 255, 255, 0.08);
+  --editor-pre-bg:    #0f172a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* ─── Base styles ────────────────────────────────────────────────────────────*/
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, sans-serif;
+  transition: background 0.2s ease, color 0.2s ease;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-
+/* ─── TipTap Editor ──────────────────────────────────────────────────────────*/
 .tiptap-wrapper {
-  min-height: calc(100vh - 20rem);
+  min-height: calc(100vh - 22rem);
 }
 
 .tiptap-editor {
   outline: none;
-  min-height: calc(100vh - 20rem);
+  min-height: calc(100vh - 22rem);
   padding: 0;
-  font-size: 0.875rem;
-  line-height: 1.75;
-  color: #111827;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9375rem;
+  line-height: 1.8;
+  color: var(--editor-text);
+  font-family: "Georgia", "Times New Roman", serif;
 }
 
 .tiptap-editor p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: #9ca3af;
+  color: var(--text-placeholder);
   pointer-events: none;
   height: 0;
 }
 
-.tiptap-editor h1 { font-size: 1.75rem; font-weight: 700; margin: 1rem 0 0.5rem; color: #111827; }
-.tiptap-editor h2 { font-size: 1.375rem; font-weight: 600; margin: 0.875rem 0 0.4rem; color: #111827; }
-.tiptap-editor h3 { font-size: 1.125rem; font-weight: 600; margin: 0.75rem 0 0.35rem; color: #374151; }
+.tiptap-editor h1 { font-size: 1.75rem; font-weight: 700; margin: 1.25rem 0 0.5rem; color: var(--editor-heading); }
+.tiptap-editor h2 { font-size: 1.375rem; font-weight: 600; margin: 1rem 0 0.4rem; color: var(--editor-heading); }
+.tiptap-editor h3 { font-size: 1.125rem; font-weight: 600; margin: 0.875rem 0 0.35rem; color: var(--editor-heading); }
 
-.tiptap-editor p { margin: 0.25rem 0; }
+.tiptap-editor p  { margin: 0.35rem 0; }
 
-.tiptap-editor ul, .tiptap-editor ol { padding-left: 1.5rem; margin: 0.5rem 0; }
-.tiptap-editor ul { list-style-type: disc; }
-.tiptap-editor ol { list-style-type: decimal; }
-.tiptap-editor li { margin: 0.15rem 0; }
+.tiptap-editor ul,
+.tiptap-editor ol  { padding-left: 1.5rem; margin: 0.5rem 0; }
+.tiptap-editor ul  { list-style-type: disc; }
+.tiptap-editor ol  { list-style-type: decimal; }
+.tiptap-editor li  { margin: 0.2rem 0; }
 
 .tiptap-editor blockquote {
-  border-left: 3px solid #1479b0;
+  border-left: 3px solid var(--accent);
   padding-left: 1rem;
-  margin: 0.75rem 0;
-  color: #4b5563;
+  margin: 1rem 0;
+  color: var(--editor-quote);
   font-style: italic;
 }
 
 .tiptap-editor code {
-  background: #f3f4f6;
-  border-radius: 3px;
-  padding: 0.1rem 0.35rem;
+  background: var(--editor-code-bg);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
   font-size: 0.8125rem;
-  color: #1479b0;
+  color: var(--editor-code-fg);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 .tiptap-editor pre {
-  background: #1e293b;
+  background: var(--editor-pre-bg);
   color: #e2e8f0;
-  border-radius: 6px;
-  padding: 1rem;
-  margin: 0.75rem 0;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin: 1rem 0;
   overflow-x: auto;
+  border: 1px solid var(--border);
 }
 .tiptap-editor pre code {
   background: none;
+  border: none;
   color: inherit;
   padding: 0;
   font-size: 0.8125rem;
@@ -92,15 +141,14 @@ body {
 
 .tiptap-editor hr {
   border: none;
-  border-top: 1px solid #e5e7eb;
-  margin: 1rem 0;
+  border-top: 1px solid var(--editor-hr);
+  margin: 1.5rem 0;
 }
 
-.tiptap-editor strong { font-weight: 700; }
-.tiptap-editor em { font-style: italic; }
-.tiptap-editor u { text-decoration: underline; }
-.tiptap-editor s { text-decoration: line-through; }
-
+.tiptap-editor strong { font-weight: 700; color: var(--editor-heading); }
+.tiptap-editor em     { font-style: italic; }
+.tiptap-editor u      { text-decoration: underline; }
+.tiptap-editor s      { text-decoration: line-through; color: var(--text-muted); }
 
 .collaboration-cursor__caret {
   border-left: 2px solid;
@@ -128,6 +176,7 @@ body {
   white-space: nowrap;
   opacity: 0;
   transition: opacity 0.2s;
+  animation: cursorFadeIn 0.3s ease forwards;
 }
 
 .collaboration-cursor__caret:hover .collaboration-cursor__label,
@@ -140,19 +189,8 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.collaboration-cursor__label {
-  animation: cursorFadeIn 0.3s ease forwards;
-}
-
-/* Make remote user selections appear in a lighter gray */
 .collaboration-cursor__selection {
-  background-color: rgba(229, 231, 235, 0.5) !important;
+  background-color: rgba(59, 130, 246, 0.15) !important;
   color: inherit;
   pointer-events: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .collaboration-cursor__selection {
-    background-color: rgba(63, 63, 70, 0.5) !important;
-  }
 }

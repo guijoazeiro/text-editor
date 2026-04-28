@@ -10,7 +10,7 @@ A collaborative document editor inspired by Google Docs, built from scratch to l
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS |
+| Frontend | Next.js 16, TypeScript, Tailwind CSS v4 |
 | Editor | TipTap v2 + collaboration extensions |
 | CRDT | Yjs + y-protocols |
 | Real-time | WebSocket (gorilla/websocket) |
@@ -27,6 +27,7 @@ A collaborative document editor inspired by Google Docs, built from scratch to l
 - bcrypt password hashing
 - Route protection middleware (HTTP and WebSocket)
 - WebSocket auth via **subprotocol** (`Sec-WebSocket-Protocol`) — safer than query params; token never appears in server logs
+- JWT expiry check on store rehydration — expired sessions are cleared automatically on page load
 
 ### Documents
 - Full CRUD with automatic owner assignment
@@ -40,8 +41,8 @@ A collaborative document editor inspired by Google Docs, built from scratch to l
 - Viewer: read-only
 
 ### Collaboration
-- Add collaborators by email
-- Update collaborator permissions
+- Add collaborators by email with permission selection (editor / viewer)
+- Update collaborator permissions inline
 - Remove collaborators
 - Public share links with configurable permissions and optional expiry
 
@@ -50,7 +51,8 @@ A collaborative document editor inspired by Google Docs, built from scratch to l
 - When permission changes
 - When a collaborator edits a document (owner receives)
 - Mark as read individually or in bulk
-- Unread counter
+- Unread counter badge in the navbar
+- Real-time dropdown accessible from any page
 
 ### History & Versioning
 - Edit history: who edited, when, and what changed (diff)
@@ -58,6 +60,7 @@ A collaborative document editor inspired by Google Docs, built from scratch to l
 - Versioning with full document snapshots
 - Restore a previous version (saves the current version first)
 - Compare two versions (diff)
+- Version history panel in the editor (last 20 versions, slide-in from right)
 
 ### WebSocket — Real-time Presence
 - Rooms per document: each document has its own isolated room
@@ -104,6 +107,18 @@ The Go backend **does not need to understand** Yjs content — it is a pure rela
 - Tooltips with name and "editing" status on avatars
 - Pulsing dot on avatar when the user has an active cursor
 
+### UI & Design System
+- **Dark / Light mode** with a persistent toggle (localStorage via Zustand)
+- CSS variable–based theming — all components use `var(--bg-base)`, `var(--text-primary)`, etc.
+- **Inter** font (Google Fonts via `next/font`)
+- Skeleton loading states on the document dashboard
+- Two-column login and signup pages (dark branding panel + form panel)
+- Notification bell with unread badge in the navbar
+- User profile page (`/profile`) with inline name editing and sign-out
+- Toast notifications for all async actions (success / error)
+- Version history slide-in panel with restore confirmation modal
+- Collaborators modal with invite by email, permission selector, public link management
+
 ---
 
 ## Project Structure
@@ -113,30 +128,56 @@ text-editor/
 ├── client/                     # Next.js frontend
 │   └── src/
 │       ├── app/
-│       │   ├── dashboard/      # Document list
+│       │   ├── dashboard/      # Document list with skeleton loading
 │       │   ├── editor/[id]/    # Main editor
-│       │   ├── login/
-│       │   └── signup/
+│       │   ├── login/          # Two-column layout
+│       │   ├── signup/         # Two-column layout
+│       │   └── profile/        # User profile page
 │       ├── components/
-│       │   ├── EditorToolbar.tsx     # TipTap formatting toolbar
-│       │   ├── Navbar.tsx
-│       │   ├── RemoteCursors.tsx     # Remote cursors and selections
-│       │   ├── TiptapEditor.tsx      # Editor wrapper
-│       │   └── UserPresence.tsx      # Online avatars
+│       │   ├── editor/
+│       │   │   ├── EditorToolbar.tsx       # TipTap formatting toolbar
+│       │   │   ├── VersionHistory.tsx      # Slide-in version history panel
+│       │   │   └── CollaboratorsModal.tsx  # Share & collaborators modal
+│       │   ├── layout/
+│       │   │   ├── Navbar.tsx              # With theme toggle, notifications, avatar
+│       │   │   └── ThemeProvider.tsx       # Applies .dark class to <html>
+│       │   ├── notifications/
+│       │   │   └── NotificationBell.tsx    # Dropdown with unread badge
+│       │   ├── presence/
+│       │   │   ├── RemoteCursors.tsx       # Remote cursors and selections
+│       │   │   └── UserPresence.tsx        # Online avatars
+│       │   └── ui/
+│       │       ├── Button.tsx
+│       │       ├── Input.tsx               # Theme-aware, with password toggle
+│       │       ├── Modal.tsx
+│       │       ├── Skeleton.tsx            # DocumentCardSkeleton
+│       │       └── Toast.tsx
 │       ├── hooks/
-│       │   ├── useWebSocket.ts       # WebSocket connection + presence
-│       │   └── useYjsEditor.ts       # Yjs doc + provider + sync state
+│       │   ├── useWebSocket.ts             # WebSocket connection + presence
+│       │   ├── useVersionHistory.ts        # Fetch + restore versions
+│       │   └── useYjsEditor.ts             # Yjs doc + provider + sync state
 │       ├── lib/
-│       │   ├── api.ts                # HTTP client (axios)
-│       │   ├── websocket.ts          # WebSocketClient class
-│       │   └── yjs-provider.ts       # Yjs sync protocol
-│       └── store/
-│           └── authStore.ts          # Zustand (JWT + user)
+│       │   ├── api.ts                      # HTTP client (axios) — all API calls
+│       │   ├── axios.ts                    # Axios instance + auth interceptor
+│       │   ├── utils.ts                    # cn() helper
+│       │   ├── websocket.ts                # WebSocketClient class
+│       │   └── yjs-provider.ts             # Yjs sync protocol
+│       ├── store/
+│       │   ├── authStore.ts                # Zustand (JWT + user + isHydrated)
+│       │   ├── themeStore.ts               # Dark/light mode (persisted)
+│       │   └── toastStore.ts               # Global toasts
+│       └── types/
+│           ├── collaborator.ts
+│           ├── document.ts
+│           ├── notification.ts
+│           ├── user.ts
+│           ├── version.ts
+│           └── index.ts
 │
 └── server/                     # Go backend
     ├── cmd/server/main.go
     ├── compactor/              # Node.js worker for Yjs merge operations
-    │   └── index.js            # /compact and /state-vector endpoints
+    │   └── index.js            # /compact, /state-vector, /health endpoints
     ├── internal/
     │   ├── auth/               # JWT + bcrypt
     │   ├── config/
@@ -281,3 +322,7 @@ Open `http://localhost:3000`.
 **Version restore via `document-content-reset`:** Restoring a version using a binary CRDT snapshot does not work for time-travel — `Y.applyUpdate` is additive, and operations with a higher Lamport clock always win. The correct approach is to broadcast the version's JSON content via WebSocket (`document-content-reset`) and have each client call `editor.commands.setContent()`. This generates new Yjs operations with the current maximum clock, properly overwriting the old content in every peer's Y.Doc. The server-side CRDT state is also cleared on restore so that newly connecting clients start from a clean slate and seed from the restored `documents.content`.
 
 **Causal ordering with Lamport timestamps:** The backend decodes the binary Yjs v1 update format in Go (without instantiating a Y.Doc) to extract the `LamportTS` and `ClientID` of each update. These are indexed in `yjs_updates` to guarantee causal ordering when replaying history to new peers, and to correctly determine the delta to send during reconnection.
+
+**CSS variable–based theming:** Instead of Tailwind dark-mode utility classes scattered across components, all color tokens are defined as CSS variables in `globals.css` (e.g. `--bg-base`, `--text-primary`, `--border`). The `ThemeProvider` component toggles the `.dark` class on `<html>`, which swaps the variable values. This means every component is theme-aware by default, and adding a third theme (e.g. high-contrast) requires changing only the CSS variable definitions.
+
+**Type-safe frontend architecture:** All API response shapes are defined in `src/types/` (document, user, collaborator, notification, version). The `authStore` (Zustand + persist) validates the JWT expiry on rehydration and clears expired sessions before any route guard runs — preventing stale auth state after a long idle period.

@@ -12,10 +12,13 @@ import { useAuthStore } from "@/store/authStore";
 import { documentsAPI } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useYjsEditor } from "@/hooks/useYjsEditor";
+import { useVersionHistory } from "@/hooks/useVersionHistory";
 import { YChange } from "@/lib/ychange";
 import Navbar from "@/components/Navbar";
 import EditorToolbar from "@/components/EditorToolbar";
 import UserPresence from "@/components/UserPresence";
+import { VersionHistory } from "@/components/editor/VersionHistory";
+import { CollaboratorsModal } from "@/components/editor/CollaboratorsModal";
 
 interface DocMeta {
   title: string;
@@ -33,6 +36,24 @@ export default function EditorPage() {
 
   const [meta, setMeta] = useState<DocMeta | null>(null);
   const [loading, setLoading] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const {
+    versions,
+    loading: versionsLoading,
+    restoring,
+    fetchVersions,
+    restoreVersion,
+  } = useVersionHistory({
+    documentId,
+    onRestoreComplete: () => setHistoryOpen(false),
+  });
+
+  const openHistory = () => {
+    setHistoryOpen(true);
+    fetchVersions();
+  };
+  const [shareOpen, setShareOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
   const documentFetchedRef = useRef(false);
@@ -256,10 +277,12 @@ export default function EditorPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen">
         <Navbar />
         <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-          <div className="text-gray-600">Loading document...</div>
+          <div className="text-[var(--text-secondary)] animate-pulse">
+            Loading document...
+          </div>
         </div>
       </div>
     );
@@ -268,39 +291,39 @@ export default function EditorPage() {
   const canEdit = meta?.permission === "owner" || meta?.permission === "editor";
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <Navbar />
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center space-x-4">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => router.push("/dashboard")}
-              className="text-gray-600 hover:text-[#1479b0] transition"
+              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition text-sm flex items-center gap-1.5"
             >
               ← Back
             </button>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-1.5">
               <div
-                className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-gray-400"}`}
+                className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-emerald-400" : "bg-slate-500"}`}
               />
-              <span className="text-sm text-gray-600">
-                {isConnected ? "Connected" : "Offline (Saved locally)"}
+              <span className="text-xs text-[var(--text-secondary)]">
+                {isConnected ? "Connected" : "Offline"}
               </span>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-1.5">
               <div
-                className={`w-2 h-2 rounded-full ${synced ? "bg-blue-500" : "bg-yellow-400"}`}
+                className={`w-1.5 h-1.5 rounded-full ${synced ? "bg-blue-400" : "bg-amber-400"}`}
               />
-              <span className="text-sm text-gray-600">
+              <span className="text-xs text-[var(--text-secondary)]">
                 {synced ? "Synced" : "Syncing…"}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-3">
             <UserPresence
               users={onlineUsers}
               remoteUsers={remoteUsers}
@@ -311,29 +334,69 @@ export default function EditorPage() {
               <button
                 onClick={handleSave}
                 disabled={saving || !synced}
-                className="px-6 py-2 bg-[#1479b0] text-white rounded-lg font-medium hover:bg-[#0f5f8d] transition disabled:opacity-50"
+                className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-500 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-blue-900/30"
               >
                 {saving ? "Saving…" : "Save"}
               </button>
             )}
 
+            <button
+              onClick={openHistory}
+              title="Version history"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.75}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </button>
+
+            <button
+              onClick={() => setShareOpen(true)}
+              title="Share document"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.75}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                />
+              </svg>
+            </button>
+
             {!canEdit && (
-              <span className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm">
+              <span className="px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs">
                 View Only
               </span>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-6 border-b border-gray-200">
+        <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-xl shadow-black/10">
+          <div className="px-8 pt-8 pb-5 border-b border-[var(--border)]">
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={!canEdit}
               placeholder="Untitled Document"
-              className="w-full text-3xl font-bold text-gray-900 outline-none placeholder-gray-400 disabled:bg-transparent"
+              className="w-full text-3xl font-bold text-[var(--text-primary)] bg-transparent outline-none placeholder-[var(--text-placeholder)] disabled:cursor-default"
             />
           </div>
 
@@ -341,25 +404,44 @@ export default function EditorPage() {
             <EditorToolbar editor={editor ?? null} disabled={!synced} />
           )}
 
-          <div className="p-6">
+          <div className="px-8 py-6">
             <EditorContent editor={editor} />
           </div>
         </div>
 
-        <div className="mt-4 text-center text-xs text-gray-500 space-y-1">
+        <div className="mt-4 text-center text-xs text-[var(--text-muted)] space-y-1">
           {meta?.permission && (
             <div>
-              You have <span className="font-medium">{meta.permission}</span>{" "}
+              You have{" "}
+              <span className="font-medium text-[var(--text-secondary)]">
+                {meta.permission}
+              </span>{" "}
               permission
             </div>
           )}
           {synced && (
-            <div className="text-blue-600">
+            <div className="text-blue-500/50">
               ✓ Real-time collaboration powered by Yjs CRDT
             </div>
           )}
         </div>
       </div>
+
+      <VersionHistory
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        versions={versions}
+        loading={versionsLoading}
+        restoring={restoring}
+        onRestore={restoreVersion}
+      />
+
+      <CollaboratorsModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        documentId={documentId}
+        isOwner={meta?.permission === "owner"}
+      />
     </div>
   );
 }
