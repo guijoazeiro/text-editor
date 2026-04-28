@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/authStore";
 import { useThemeStore } from "@/store/themeStore";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 function SunIcon() {
   return (
@@ -41,6 +42,15 @@ function MoonIcon() {
   );
 }
 
+function Avatar({ name }: { name: string }) {
+  const initial = name?.[0]?.toUpperCase() ?? "?";
+  return (
+    <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold select-none">
+      {initial}
+    </div>
+  );
+}
+
 export default function Navbar() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
@@ -57,13 +67,12 @@ export default function Navbar() {
         <div className="flex justify-between items-center h-14">
           <Link
             href="/dashboard"
-            className="text-xl font-bold bg-gradient-to-r from-blue-500 to-violet-500 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
+            className="text-xl font-bold text-blue-500 hover:text-blue-400 transition-colors"
           >
             Docs Editor
           </Link>
 
-          <div className="flex items-center gap-2">
-            {/* Theme toggle */}
+          <div className="flex items-center gap-1">
             <button
               onClick={toggle}
               title={
@@ -78,12 +87,19 @@ export default function Navbar() {
 
             {user && (
               <>
-                <span className="text-sm text-[var(--text-secondary)] hidden sm:block px-1">
-                  {user.name}
-                </span>
+                <NotificationBell />
+
+                <Link
+                  href="/profile"
+                  title="View profile"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+                >
+                  <Avatar name={user.name} />
+                </Link>
+
                 <button
                   onClick={handleLogout}
-                  className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors px-3 py-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+                  className="ml-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors px-3 py-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 hidden sm:block"
                 >
                   Logout
                 </button>

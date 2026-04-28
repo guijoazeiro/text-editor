@@ -12,10 +12,12 @@ import { useAuthStore } from "@/store/authStore";
 import { documentsAPI } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useYjsEditor } from "@/hooks/useYjsEditor";
+import { useVersionHistory } from "@/hooks/useVersionHistory";
 import { YChange } from "@/lib/ychange";
 import Navbar from "@/components/Navbar";
 import EditorToolbar from "@/components/EditorToolbar";
 import UserPresence from "@/components/UserPresence";
+import { VersionHistory } from "@/components/editor/VersionHistory";
 
 interface DocMeta {
   title: string;
@@ -33,6 +35,23 @@ export default function EditorPage() {
 
   const [meta, setMeta] = useState<DocMeta | null>(null);
   const [loading, setLoading] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const {
+    versions,
+    loading: versionsLoading,
+    restoring,
+    fetchVersions,
+    restoreVersion,
+  } = useVersionHistory({
+    documentId,
+    onRestoreComplete: () => setHistoryOpen(false),
+  });
+
+  const openHistory = () => {
+    setHistoryOpen(true);
+    fetchVersions();
+  };
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState("");
   const documentFetchedRef = useRef(false);
@@ -259,7 +278,9 @@ export default function EditorPage() {
       <div className="min-h-screen">
         <Navbar />
         <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-          <div className="text-[var(--text-secondary)] animate-pulse">Loading document...</div>
+          <div className="text-[var(--text-secondary)] animate-pulse">
+            Loading document...
+          </div>
         </div>
       </div>
     );
@@ -272,7 +293,6 @@ export default function EditorPage() {
       <Navbar />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Status bar */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-4">
             <button
@@ -318,6 +338,26 @@ export default function EditorPage() {
               </button>
             )}
 
+            <button
+              onClick={openHistory}
+              title="Version history"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.75}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </button>
+
             {!canEdit && (
               <span className="px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs">
                 View Only
@@ -326,7 +366,6 @@ export default function EditorPage() {
           </div>
         </div>
 
-        {/* Document card */}
         <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-xl shadow-black/10">
           <div className="px-8 pt-8 pb-5 border-b border-[var(--border)]">
             <input
@@ -353,7 +392,9 @@ export default function EditorPage() {
           {meta?.permission && (
             <div>
               You have{" "}
-              <span className="font-medium text-[var(--text-secondary)]">{meta.permission}</span>{" "}
+              <span className="font-medium text-[var(--text-secondary)]">
+                {meta.permission}
+              </span>{" "}
               permission
             </div>
           )}
@@ -364,6 +405,15 @@ export default function EditorPage() {
           )}
         </div>
       </div>
+
+      <VersionHistory
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        versions={versions}
+        loading={versionsLoading}
+        restoring={restoring}
+        onRestore={restoreVersion}
+      />
     </div>
   );
 }
