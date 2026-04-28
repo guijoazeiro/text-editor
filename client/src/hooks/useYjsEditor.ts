@@ -4,11 +4,10 @@ import { YjsWebSocketProvider } from "@/lib/yjs-provider";
 import { WebSocketClient } from "@/lib/websocket";
 import * as awarenessProtocol from "y-protocols/awareness";
 
-export interface RemoteUser {
-  clientId: number;
-  user: { id: string; name: string; color: string };
-  cursor?: unknown;
-}
+import type { RemoteUser } from "@/types";
+
+// Re-export for backward compatibility with files importing from this hook
+export type { RemoteUser };
 
 export interface YjsEditorState {
   ydoc: Y.Doc;
@@ -119,9 +118,6 @@ export const useYjsEditor = ({
       try {
         console.log("[Yjs] Applying yjs-reset snapshot to ydoc…");
 
-        // Apply the authoritative snapshot. We use transact with origin
-        // "yjs-reset" so the provider's doc.on("update") listener ignores
-        // this update and does NOT re-broadcast it to the server.
         Y.transact(
           ydoc,
           () => {
@@ -130,15 +126,11 @@ export const useYjsEditor = ({
           "yjs-reset",
         );
 
-        // Clear the IndexedDB cache so the next page load doesn't restore
-        // the pre-reset state from local storage.
         try {
           const { clearDocument } = await import("y-indexeddb");
           await clearDocument(documentId);
           console.log("[Yjs] IndexedDB cleared after reset");
         } catch {
-          // y-indexeddb may not export clearDocument — fall back to manual clear
-          // The IndexeddbPersistence uses documentId as the DB name directly.
           indexedDB.deleteDatabase(documentId);
           console.log("[Yjs] IndexedDB deleted after reset (fallback)");
         }

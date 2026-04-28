@@ -256,10 +256,10 @@ export default function EditorPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen">
         <Navbar />
         <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-          <div className="text-gray-600">Loading document...</div>
+          <div className="text-[var(--text-secondary)] animate-pulse">Loading document...</div>
         </div>
       </div>
     );
@@ -268,39 +268,40 @@ export default function EditorPage() {
   const canEdit = meta?.permission === "owner" || meta?.permission === "editor";
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <Navbar />
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center space-x-4">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Status bar */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => router.push("/dashboard")}
-              className="text-gray-600 hover:text-[#1479b0] transition"
+              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition text-sm flex items-center gap-1.5"
             >
               ← Back
             </button>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-1.5">
               <div
-                className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-gray-400"}`}
+                className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-emerald-400" : "bg-slate-500"}`}
               />
-              <span className="text-sm text-gray-600">
-                {isConnected ? "Connected" : "Offline (Saved locally)"}
+              <span className="text-xs text-[var(--text-secondary)]">
+                {isConnected ? "Connected" : "Offline"}
               </span>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-1.5">
               <div
-                className={`w-2 h-2 rounded-full ${synced ? "bg-blue-500" : "bg-yellow-400"}`}
+                className={`w-1.5 h-1.5 rounded-full ${synced ? "bg-blue-400" : "bg-amber-400"}`}
               />
-              <span className="text-sm text-gray-600">
+              <span className="text-xs text-[var(--text-secondary)]">
                 {synced ? "Synced" : "Syncing…"}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-3">
             <UserPresence
               users={onlineUsers}
               remoteUsers={remoteUsers}
@@ -311,29 +312,30 @@ export default function EditorPage() {
               <button
                 onClick={handleSave}
                 disabled={saving || !synced}
-                className="px-6 py-2 bg-[#1479b0] text-white rounded-lg font-medium hover:bg-[#0f5f8d] transition disabled:opacity-50"
+                className="px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-500 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm shadow-blue-900/30"
               >
                 {saving ? "Saving…" : "Save"}
               </button>
             )}
 
             {!canEdit && (
-              <span className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm">
+              <span className="px-3 py-1.5 bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] rounded-lg text-xs">
                 View Only
               </span>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-6 border-b border-gray-200">
+        {/* Document card */}
+        <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-xl shadow-black/10">
+          <div className="px-8 pt-8 pb-5 border-b border-[var(--border)]">
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={!canEdit}
               placeholder="Untitled Document"
-              className="w-full text-3xl font-bold text-gray-900 outline-none placeholder-gray-400 disabled:bg-transparent"
+              className="w-full text-3xl font-bold text-[var(--text-primary)] bg-transparent outline-none placeholder-[var(--text-placeholder)] disabled:cursor-default"
             />
           </div>
 
@@ -341,20 +343,22 @@ export default function EditorPage() {
             <EditorToolbar editor={editor ?? null} disabled={!synced} />
           )}
 
-          <div className="p-6">
+          <div className="px-8 py-6">
             <EditorContent editor={editor} />
           </div>
         </div>
 
-        <div className="mt-4 text-center text-xs text-gray-500 space-y-1">
+        {/* Footer */}
+        <div className="mt-4 text-center text-xs text-[var(--text-muted)] space-y-1">
           {meta?.permission && (
             <div>
-              You have <span className="font-medium">{meta.permission}</span>{" "}
+              You have{" "}
+              <span className="font-medium text-[var(--text-secondary)]">{meta.permission}</span>{" "}
               permission
             </div>
           )}
           {synced && (
-            <div className="text-blue-600">
+            <div className="text-blue-500/50">
               ✓ Real-time collaboration powered by Yjs CRDT
             </div>
           )}

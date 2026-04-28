@@ -95,35 +95,35 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen">
         <Navbar />
         <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
-          <div className="text-gray-600">Loading...</div>
+          <div className="text-[var(--text-secondary)] animate-pulse">Loading...</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <Navbar />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-900">My Documents</h2>
+          <h2 className="text-2xl font-bold text-[var(--text-primary)]">My Documents</h2>
           <button
             onClick={createDocument}
             disabled={creating}
-            className="px-6 py-3 bg-[#1479b0] text-white rounded-lg font-medium hover:bg-[#0f5f8d] transition disabled:opacity-50"
+            className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-500 transition disabled:opacity-40 shadow-sm shadow-blue-900/30"
           >
             {creating ? "Creating..." : "+ New Document"}
           </button>
         </div>
 
         {documents.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="text-gray-400 mb-4">
+          <div className="text-center py-24">
+            <div className="text-slate-700 mb-4">
               <svg
-                className="w-16 h-16 mx-auto"
+                className="w-14 h-14 mx-auto"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -136,29 +136,29 @@ export default function DashboardPage() {
                 />
               </svg>
             </div>
-            <p className="text-gray-600 text-lg mb-4">No documents yet</p>
+            <p className="text-[var(--text-secondary)] text-base mb-4">No documents yet</p>
             <button
               onClick={createDocument}
-              className="text-[#1479b0] hover:underline font-medium"
+              className="text-blue-400 hover:text-blue-300 font-medium text-sm transition"
             >
               Create your first document
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {documents.map((doc) => (
               <div
                 key={doc.id}
                 onClick={() => router.push(`/editor/${doc.id}`)}
-                className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:shadow-md hover:border-[#1479b0] transition cursor-pointer"
+                className="bg-[var(--bg-card)] p-5 rounded-xl border border-[var(--border)] hover:border-blue-500/40 hover:shadow-lg hover:shadow-blue-900/10 transition-all duration-200 cursor-pointer group"
               >
-                <h3 className="text-lg font-semibold text-gray-900 mb-2 truncate">
+                <h3 className="text-base font-semibold text-[var(--text-primary)] mb-2 truncate group-hover:text-blue-500 transition-colors">
                   {doc.title}
                 </h3>
-                <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                <p className="text-sm text-[var(--text-secondary)] mb-4 line-clamp-2 leading-relaxed">
                   {getPreviewText(doc)}
                 </p>
-                <div className="flex items-center justify-between text-xs text-gray-500">
+                <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
                   <span>{doc.user.name}</span>
                   <span>{formatDate(doc.updated_at)}</span>
                 </div>
