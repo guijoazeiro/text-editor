@@ -11,6 +11,12 @@ interface Props {
   restoring: boolean;
   currentVersionNumber?: number;
   onRestore: (versionNumber: number) => void;
+  pagination?: {
+    page: number;
+    pages: number;
+    total: number;
+  };
+  onPageChange?: (page: number) => void;
 }
 
 function timeAgo(dateStr: string) {
@@ -55,6 +61,8 @@ export function VersionHistory({
   restoring,
   currentVersionNumber,
   onRestore,
+  pagination,
+  onPageChange,
 }: Props) {
   const [confirmVersion, setConfirmVersion] = useState<DocumentVersion | null>(
     null,
@@ -206,9 +214,31 @@ export function VersionHistory({
         </div>
 
         <div className="px-5 py-3 border-t border-[var(--border)] shrink-0">
-          <p className="text-xs text-[var(--text-muted)]">
-            Showing the last {versions.length} versions
-          </p>
+          {pagination && pagination.pages > 1 ? (
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => onPageChange?.(pagination.page - 1)}
+                disabled={pagination.page <= 1 || loading}
+                className="text-xs px-2.5 py-1 rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-base)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Prev
+              </button>
+              <span className="text-xs text-[var(--text-muted)]">
+                {pagination.page} / {pagination.pages}
+              </span>
+              <button
+                onClick={() => onPageChange?.(pagination.page + 1)}
+                disabled={pagination.page >= pagination.pages || loading}
+                className="text-xs px-2.5 py-1 rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-base)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-[var(--text-muted)]">
+              {pagination?.total ?? versions.length} version{(pagination?.total ?? versions.length) !== 1 ? "s" : ""} total
+            </p>
+          )}
         </div>
       </div>
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -96,8 +97,25 @@ func (h *DocumentHandler) List(c *gin.Context) {
 		return
 	}
 
+	page := 1
+	if v, err := strconv.Atoi(c.Query("page")); err == nil && v > 0 {
+		page = v
+	}
+	limit := 20
+	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 100 {
+		limit = v
+	}
+	offset := (page - 1) * limit
+
+	var total int64
+	h.db.Model(&models.Document{}).Where("user_id = ?", userUUID).Count(&total)
+
 	var ownedDocs []models.Document
-	if err := h.db.Preload("User").Where("user_id = ?", userUUID).Order("created_at DESC").Find(&ownedDocs).Error; err != nil {
+	if err := h.db.Preload("User").
+		Where("user_id = ?", userUUID).
+		Order("created_at DESC").
+		Limit(limit).Offset(offset).
+		Find(&ownedDocs).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch documents", err)
 		return
 	}
@@ -117,7 +135,19 @@ func (h *DocumentHandler) List(c *gin.Context) {
 	}
 
 	allDocs := append(ownedDocs, sharedDocs...)
-	response.Success(c, http.StatusOK, "Documents fetched successfully", allDocs)
+
+	totalPages := int((total + int64(limit) - 1) / int64(limit))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	response.Success(c, http.StatusOK, "Documents fetched successfully", gin.H{
+		"documents": allDocs,
+		"total":     total,
+		"page":      page,
+		"limit":     limit,
+		"pages":     totalPages,
+	})
 }
 
 func (h *DocumentHandler) GetByID(c *gin.Context) {

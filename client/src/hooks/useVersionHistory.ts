@@ -9,6 +9,13 @@ interface UseVersionHistoryOptions {
   onRestoreComplete?: () => void;
 }
 
+interface PaginationMeta {
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+}
+
 export function useVersionHistory({
   documentId,
   onRestoreStart,
@@ -19,19 +26,40 @@ export function useVersionHistory({
   const [versions, setVersions] = useState<DocumentVersion[]>([]);
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [pagination, setPagination] = useState<PaginationMeta>({
+    total: 0,
+    page: 1,
+    limit: 20,
+    pages: 1,
+  });
 
-  const fetchVersions = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await versionsAPI.list(documentId);
-      const all: DocumentVersion[] = res.data.data ?? [];
-      setVersions(all.slice(0, 20));
-    } catch {
-      toast.error("Failed to load version history");
-    } finally {
-      setLoading(false);
-    }
-  }, [documentId, toast]);
+  const fetchVersions = useCallback(
+    async (page = 1, limit = 20) => {
+      setLoading(true);
+      try {
+        const res = await versionsAPI.list(documentId, { page, limit });
+        const data = res.data.data;
+
+        if (data && typeof data === "object" && "versions" in data) {
+          setVersions(data.versions ?? []);
+          setPagination({
+            total: data.total ?? 0,
+            page: data.page ?? page,
+            limit: data.limit ?? limit,
+            pages: data.pages ?? 1,
+          });
+        } else {
+          const all: DocumentVersion[] = data ?? [];
+          setVersions(all.slice(0, limit));
+        }
+      } catch {
+        toast.error("Failed to load version history");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [documentId, toast],
+  );
 
   const restoreVersion = useCallback(
     async (versionNumber: number) => {
@@ -40,7 +68,7 @@ export function useVersionHistory({
       try {
         await versionsAPI.restore(documentId, versionNumber);
         toast.success(`Restored to version ${versionNumber}`);
-        await fetchVersions();
+        await fetchVersions(pagination.page, pagination.limit);
         onRestoreComplete?.();
       } catch {
         toast.error("Failed to restore version");
@@ -48,8 +76,23 @@ export function useVersionHistory({
         setRestoring(false);
       }
     },
-    [documentId, fetchVersions, onRestoreStart, onRestoreComplete, toast],
+    [
+      documentId,
+      fetchVersions,
+      onRestoreStart,
+      onRestoreComplete,
+      pagination.page,
+      pagination.limit,
+      toast,
+    ],
   );
 
-  return { versions, loading, restoring, fetchVersions, restoreVersion };
+  return {
+    versions,
+    loading,
+    restoring,
+    pagination,
+    fetchVersions,
+    restoreVersion,
+  };
 }

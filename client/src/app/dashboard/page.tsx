@@ -109,7 +109,12 @@ export default function DashboardPage() {
   const fetchDocuments = async () => {
     try {
       const response = await documentsAPI.list();
-      setDocuments(response.data.data ?? []);
+      const data = response.data.data;
+      if (data && typeof data === "object" && "documents" in data) {
+        setDocuments(data.documents ?? []);
+      } else {
+        setDocuments(Array.isArray(data) ? data : []);
+      }
     } catch {
       toast.error("Failed to load documents");
     } finally {

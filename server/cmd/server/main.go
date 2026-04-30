@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,7 @@ import (
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/websocket"
 	"github.com/joho/godotenv"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
 
@@ -95,6 +97,8 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	permissionService := services.NewPermissionService(db)
 	yjsHandler := handlers.NewYjsHandler(yjsService, permissionService, snapshotService, compactorService)
 
+	shareLinkLimiter := middleware.NewRateLimiter(rate.Every(6*time.Second), 5)
+
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":   "healthy",
@@ -121,7 +125,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 
 		documents := api.Group("/documents")
 		{
-			documents.GET("/shared/:token", collaboratorHandler.GetByShareLink)
+			documents.GET("/shared/:token", shareLinkLimiter.Middleware(), collaboratorHandler.GetByShareLink)
 
 			protected := documents.Group("")
 			protected.Use(middleware.AuthRequired(jwtService))

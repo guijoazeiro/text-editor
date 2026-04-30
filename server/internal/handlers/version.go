@@ -33,6 +33,23 @@ func NewVersionHandler(db *gorm.DB, snapshotService *services.SnapshotService, y
 	}
 }
 
+func parseIntQuery(c *gin.Context, key string, fallback int) int {
+	if v, err := strconv.Atoi(c.Query(key)); err == nil {
+		return v
+	}
+	return fallback
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
 func (h *VersionHandler) GetVersions(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -64,13 +81,28 @@ func (h *VersionHandler) GetVersions(c *gin.Context) {
 		return
 	}
 
-	versions, err := h.versionService.GetVersions(documentID)
+	page := max(1, parseIntQuery(c, "page", 1))
+	limit := clamp(parseIntQuery(c, "limit", 20), 1, 50)
+	offset := (page - 1) * limit
+
+	versions, total, err := h.versionService.GetVersionsPaginated(documentID, limit, offset)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch versions", err)
 		return
 	}
 
-	response.Success(c, http.StatusOK, "Versions fetched successfully", versions)
+	totalPages := int((total + int64(limit) - 1) / int64(limit))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	response.Success(c, http.StatusOK, "Versions fetched successfully", gin.H{
+		"versions": versions,
+		"total":    total,
+		"page":     page,
+		"limit":    limit,
+		"pages":    totalPages,
+	})
 }
 
 func (h *VersionHandler) GetVersion(c *gin.Context) {

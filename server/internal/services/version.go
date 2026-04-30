@@ -53,6 +53,25 @@ func (s *VersionService) GetVersions(documentID uuid.UUID) ([]models.DocumentVer
 	return versions, err
 }
 
+func (s *VersionService) GetVersionsPaginated(documentID uuid.UUID, limit, offset int) ([]models.DocumentVersion, int64, error) {
+	var versions []models.DocumentVersion
+	var total int64
+
+	if err := s.db.Model(&models.DocumentVersion{}).
+		Where("document_id = ?", documentID).
+		Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err := s.db.Preload("User").
+		Where("document_id = ?", documentID).
+		Order("version_number DESC").
+		Limit(limit).Offset(offset).
+		Find(&versions).Error
+
+	return versions, total, err
+}
+
 func (s *VersionService) GetVersion(documentID uuid.UUID, versionNumber int) (*models.DocumentVersion, error) {
 	var version models.DocumentVersion
 	err := s.db.Preload("User").
