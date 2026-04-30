@@ -477,8 +477,8 @@ func (h *Hub) tryPersistYjsUpdate(message *Message) {
 	if h.compactorService != nil {
 		docID := message.DocumentID
 		go func() {
-			if err := h.compactorService.MaybeCompact(docID); err != nil {
-				log.Printf("[Compactor] MaybeCompact failed for doc=%s: %v", docID, err)
+			if err := h.compactorService.MaybeCompactWithRetry(docID); err != nil {
+				log.Printf("[Compactor] MaybeCompactWithRetry failed for doc=%s: %v", docID, err)
 			}
 		}()
 	}

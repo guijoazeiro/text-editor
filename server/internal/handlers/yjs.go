@@ -114,3 +114,53 @@ func (h *YjsHandler) GetStateVector(c *gin.Context) {
 		"lamport_ts":   snap.LamportTS,
 	})
 }
+
+func (h *YjsHandler) GetDiff(c *gin.Context) {
+	userUUID, ok := parseUserUUID(c)
+	if !ok {
+		return
+	}
+
+	documentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
+		return
+	}
+
+	if !h.permissionService.CanView(documentID, userUUID) {
+		response.Error(c, http.StatusForbidden, "Access denied", nil)
+		return
+	}
+
+	svParam := c.Query("sv")
+	if svParam == "" {
+		response.Error(c, http.StatusBadRequest, "Missing state vector (sv query param)", nil)
+		return
+	}
+
+	clientSV, err := base64.StdEncoding.DecodeString(svParam)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid state vector encoding (expected base64)", err)
+		return
+	}
+
+	if h.compactorService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Compactor service unavailable", nil)
+		return
+	}
+
+	diff, err := h.compactorService.GetDiff(documentID, clientSV)
+	if err != nil {
+		response.Error(c, http.StatusServiceUnavailable, "Diff service unavailable", err)
+		return
+	}
+
+	if len(diff) == 0 {
+		c.Status(http.StatusNoContent)
+		return
+	}
+
+	response.Success(c, http.StatusOK, "Diff computed successfully", gin.H{
+		"diff": base64.StdEncoding.EncodeToString(diff),
+	})
+}

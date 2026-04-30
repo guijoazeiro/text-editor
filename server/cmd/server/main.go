@@ -140,6 +140,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 
 				protected.GET("/:id/yjs-updates", yjsHandler.GetUpdates)
 				protected.GET("/:id/yjs-state-vector", yjsHandler.GetStateVector)
+				protected.GET("/:id/yjs-diff", yjsHandler.GetDiff)
 
 				protected.POST("/:id/collaborators", collaboratorHandler.AddCollaborator)
 				protected.GET("/:id/collaborators", collaboratorHandler.ListCollaborators)
