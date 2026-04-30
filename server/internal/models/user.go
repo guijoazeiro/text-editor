@@ -8,13 +8,15 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"`
-	Name         string     `gorm:"not null" json:"name"`
-	Email        string     `gorm:"uniqueIndex;not null" json:"email"`
-	PasswordHash string     `gorm:"not null" json:"-"`
-	Documents    []Document `gorm:"foreignKey:UserID" json:"documents,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID               uuid.UUID  `gorm:"type:uuid;primary_key" json:"id"`
+	Name             string     `gorm:"not null" json:"name"`
+	Email            string     `gorm:"uniqueIndex;not null" json:"email"`
+	PasswordHash     string     `gorm:"not null" json:"-"`
+	RefreshTokenHash string     `gorm:"not null;default:''" json:"-"`
+	RefreshTokenExp  *time.Time `json:"-"`
+	Documents        []Document `gorm:"foreignKey:UserID" json:"documents,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) error {
@@ -38,4 +40,8 @@ type LoginRequest struct {
 type LoginResponse struct {
 	Token string `json:"token"`
 	User  User   `json:"user"`
+}
+
+type UpdateProfileRequest struct {
+	Name string `json:"name" binding:"required,min=1,max=100"`
 }

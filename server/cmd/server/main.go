@@ -78,7 +78,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
@@ -113,7 +113,10 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 		{
 			auth.POST("/signup", authHandler.Signup)
 			auth.POST("/login", authHandler.Login)
+			auth.POST("/refresh", authHandler.Refresh)
 			auth.GET("/me", middleware.AuthRequired(jwtService), authHandler.Me)
+			auth.PATCH("/me", middleware.AuthRequired(jwtService), authHandler.UpdateMe)
+			auth.POST("/logout", middleware.AuthRequired(jwtService), authHandler.Logout)
 		}
 
 		documents := api.Group("/documents")
