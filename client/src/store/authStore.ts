@@ -11,6 +11,7 @@ interface AuthState {
   logout: () => void;
   initialize: () => void;
   setHydrated: (hydrated: boolean) => void;
+  setToken: (token: string) => void;
 }
 
 function getTokenExpiry(token: string): number | null {
@@ -57,6 +58,10 @@ export const useAuthStore = create<AuthState>()(
 
       setHydrated: (hydrated: boolean) => {
         set({ isHydrated: hydrated });
+      },
+
+      setToken: (token: string) => {
+        set({ token, isAuthenticated: true });
       },
     }),
     {

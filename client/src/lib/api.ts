@@ -8,7 +8,13 @@ export const authAPI = {
   login: (data: { email: string; password: string }) =>
     axiosInstance.post("/api/auth/login", data),
   me: () => axiosInstance.get("/api/auth/me"),
+  updateMe: (data: { name: string }) =>
+    axiosInstance.patch("/api/auth/me", data),
+  refresh: () =>
+    axiosInstance.post("/api/auth/refresh", {}, { withCredentials: true }),
+  logout: () => axiosInstance.post("/api/auth/logout"),
 };
+
 
 export const documentsAPI = {
   list: () => axiosInstance.get("/api/documents"),

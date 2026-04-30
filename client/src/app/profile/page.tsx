@@ -71,8 +71,11 @@ export default function ProfilePage() {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      if (user) login(useAuthStore.getState().token!, { ...user, name });
-      setProfile((p) => (p ? { ...p, name } : p));
+      const res = await authAPI.updateMe({ name: name.trim() });
+      const updated = res.data.data as User;
+      setProfile(updated);
+      // Keep the store in sync so the navbar avatar reflects the new name.
+      if (user) login(useAuthStore.getState().token!, updated);
       setEditing(false);
       toast.success("Name updated");
     } catch {
@@ -82,7 +85,10 @@ export default function ProfilePage() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await authAPI.logout();
+    } catch {}
     logout();
     router.push("/login");
   };
