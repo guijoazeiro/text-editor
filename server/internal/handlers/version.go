@@ -18,15 +18,17 @@ type VersionHandler struct {
 	versionService    *services.VersionService
 	permissionService *services.PermissionService
 	historyService    *services.HistoryService
+	yjsService        *services.YjsService
 	hub               *websocket.Hub
 }
 
-func NewVersionHandler(db *gorm.DB, snapshotService *services.SnapshotService, hub *websocket.Hub) *VersionHandler {
+func NewVersionHandler(db *gorm.DB, snapshotService *services.SnapshotService, yjsService *services.YjsService, hub *websocket.Hub) *VersionHandler {
 	return &VersionHandler{
 		db:                db,
 		versionService:    services.NewVersionService(db, snapshotService),
 		permissionService: services.NewPermissionService(db),
 		historyService:    services.NewHistoryService(db),
+		yjsService:        yjsService,
 		hub:               hub,
 	}
 }
@@ -154,10 +156,25 @@ func (h *VersionHandler) RestoreVersion(c *gin.Context) {
 		return
 	}
 
+	if h.hub != nil {
+		h.hub.WaitForDrain(documentID)
+	}
+
+	if h.hub != nil {
+		h.hub.SetRestoring(documentID, true)
+		defer h.hub.SetRestoring(documentID, false)
+	}
+
 	result, err := h.versionService.RestoreVersion(documentID, versionNumber, userUUID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to restore version", err)
 		return
+	}
+
+	if h.yjsService != nil {
+		if err := h.yjsService.DeleteUpdatesForDocument(documentID); err != nil {
+			log.Printf("[Version] failed to clear yjs_updates after restore doc=%s: %v", documentID, err)
+		}
 	}
 
 	h.historyService.RecordCreation(documentID, userUUID)
