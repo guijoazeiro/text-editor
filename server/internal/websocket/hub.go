@@ -31,6 +31,8 @@ type Hub struct {
 	yjsService       *services.YjsService
 	snapshotService  *services.SnapshotService
 	compactorService *services.CompactorService
+	restoringDocs    map[uuid.UUID]bool
+	restoreMu        sync.RWMutex
 }
 
 func NewHub(
@@ -46,6 +48,7 @@ func NewHub(
 		yjsService:       yjsService,
 		snapshotService:  snapshotService,
 		compactorService: compactorService,
+		restoringDocs:    make(map[uuid.UUID]bool),
 	}
 }
 
@@ -367,8 +370,46 @@ func (h *Hub) sendPersistedYjsState(client *Client) {
 	}
 }
 
+func (h *Hub) SetRestoring(docID uuid.UUID, restoring bool) {
+	h.restoreMu.Lock()
+	defer h.restoreMu.Unlock()
+	if restoring {
+		h.restoringDocs[docID] = true
+	} else {
+		delete(h.restoringDocs, docID)
+	}
+}
+
+func (h *Hub) IsRestoring(docID uuid.UUID) bool {
+	h.restoreMu.RLock()
+	defer h.restoreMu.RUnlock()
+	return h.restoringDocs[docID]
+}
+
+func (h *Hub) WaitForDrain(_ uuid.UUID) {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(200 * time.Millisecond)
+	for {
+		select {
+		case <-deadline:
+			return
+		case <-ticker.C:
+			if len(h.Broadcast) == 0 {
+				return
+			}
+		}
+	}
+}
+
 func (h *Hub) tryPersistYjsUpdate(message *Message) {
 	if h.yjsService == nil {
+		return
+	}
+
+	if h.IsRestoring(message.DocumentID) {
+		log.Printf("[Yjs] dropping update during restore for doc=%s conn=%s",
+			message.DocumentID, message.SenderConnID)
 		return
 	}
 
