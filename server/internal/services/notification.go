@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -8,12 +9,32 @@ import (
 	"gorm.io/gorm"
 )
 
+type NotificationHub interface {
+	SendToUser(userID uuid.UUID, msg models.WSMessage)
+}
+
 type NotificationService struct {
-	db *gorm.DB
+	db  *gorm.DB
+	hub NotificationHub
 }
 
 func NewNotificationService(db *gorm.DB) *NotificationService {
 	return &NotificationService{db: db}
+}
+
+func NewNotificationServiceWithHub(db *gorm.DB, hub NotificationHub) *NotificationService {
+	return &NotificationService{db: db, hub: hub}
+}
+
+func (s *NotificationService) push(n *models.Notification) {
+	if s.hub == nil {
+		return
+	}
+	payload, _ := json.Marshal(n)
+	s.hub.SendToUser(n.UserID, models.WSMessage{
+		Type: "notification:new",
+		Data: map[string]interface{}{"notification": json.RawMessage(payload)},
+	})
 }
 
 func (s *NotificationService) NotifyCollaboratorAdded(documentID, targetUserID, fromUserID uuid.UUID, permission models.PermissionType) error {
@@ -37,7 +58,11 @@ func (s *NotificationService) NotifyCollaboratorAdded(documentID, targetUserID, 
 		Read:       false,
 	}
 
-	return s.db.Create(&notification).Error
+	if err := s.db.Create(&notification).Error; err != nil {
+		return err
+	}
+	s.push(&notification)
+	return nil
 }
 
 func (s *NotificationService) NotifyDocumentEdited(documentID, editorUserID uuid.UUID) error {
@@ -65,7 +90,11 @@ func (s *NotificationService) NotifyDocumentEdited(documentID, editorUserID uuid
 		Read:       false,
 	}
 
-	return s.db.Create(&notification).Error
+	if err := s.db.Create(&notification).Error; err != nil {
+		return err
+	}
+	s.push(&notification)
+	return nil
 }
 
 func (s *NotificationService) NotifyPermissionChanged(documentID, targetUserID, fromUserID uuid.UUID, newPermission models.PermissionType) error {
@@ -89,5 +118,9 @@ func (s *NotificationService) NotifyPermissionChanged(documentID, targetUserID, 
 		Read:       false,
 	}
 
-	return s.db.Create(&notification).Error
+	if err := s.db.Create(&notification).Error; err != nil {
+		return err
+	}
+	s.push(&notification)
+	return nil
 }

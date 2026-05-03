@@ -11,6 +11,7 @@ interface AuthState {
   logout: () => void;
   initialize: () => void;
   setHydrated: (hydrated: boolean) => void;
+  setToken: (token: string) => void;
 }
 
 function getTokenExpiry(token: string): number | null {
@@ -58,6 +59,10 @@ export const useAuthStore = create<AuthState>()(
       setHydrated: (hydrated: boolean) => {
         set({ isHydrated: hydrated });
       },
+
+      setToken: (token: string) => {
+        set({ token, isAuthenticated: true });
+      },
     }),
     {
       name: "auth-storage",
@@ -75,3 +80,12 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+if (typeof window !== "undefined") {
+  window.addEventListener("ws:token-refreshed", (e: Event) => {
+    const newToken = (e as CustomEvent<string>).detail;
+    if (newToken) {
+      useAuthStore.getState().setToken(newToken);
+    }
+  });
+}

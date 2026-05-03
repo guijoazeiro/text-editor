@@ -18,17 +18,36 @@ type VersionHandler struct {
 	versionService    *services.VersionService
 	permissionService *services.PermissionService
 	historyService    *services.HistoryService
+	yjsService        *services.YjsService
 	hub               *websocket.Hub
 }
 
-func NewVersionHandler(db *gorm.DB, snapshotService *services.SnapshotService, hub *websocket.Hub) *VersionHandler {
+func NewVersionHandler(db *gorm.DB, snapshotService *services.SnapshotService, yjsService *services.YjsService, hub *websocket.Hub) *VersionHandler {
 	return &VersionHandler{
 		db:                db,
 		versionService:    services.NewVersionService(db, snapshotService),
 		permissionService: services.NewPermissionService(db),
 		historyService:    services.NewHistoryService(db),
+		yjsService:        yjsService,
 		hub:               hub,
 	}
+}
+
+func parseIntQuery(c *gin.Context, key string, fallback int) int {
+	if v, err := strconv.Atoi(c.Query(key)); err == nil {
+		return v
+	}
+	return fallback
+}
+
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 func (h *VersionHandler) GetVersions(c *gin.Context) {
@@ -62,13 +81,28 @@ func (h *VersionHandler) GetVersions(c *gin.Context) {
 		return
 	}
 
-	versions, err := h.versionService.GetVersions(documentID)
+	page := max(1, parseIntQuery(c, "page", 1))
+	limit := clamp(parseIntQuery(c, "limit", 20), 1, 50)
+	offset := (page - 1) * limit
+
+	versions, total, err := h.versionService.GetVersionsPaginated(documentID, limit, offset)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch versions", err)
 		return
 	}
 
-	response.Success(c, http.StatusOK, "Versions fetched successfully", versions)
+	totalPages := int((total + int64(limit) - 1) / int64(limit))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
+	response.Success(c, http.StatusOK, "Versions fetched successfully", gin.H{
+		"versions": versions,
+		"total":    total,
+		"page":     page,
+		"limit":    limit,
+		"pages":    totalPages,
+	})
 }
 
 func (h *VersionHandler) GetVersion(c *gin.Context) {
@@ -154,10 +188,25 @@ func (h *VersionHandler) RestoreVersion(c *gin.Context) {
 		return
 	}
 
+	if h.hub != nil {
+		h.hub.WaitForDrain(documentID)
+	}
+
+	if h.hub != nil {
+		h.hub.SetRestoring(documentID, true)
+		defer h.hub.SetRestoring(documentID, false)
+	}
+
 	result, err := h.versionService.RestoreVersion(documentID, versionNumber, userUUID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to restore version", err)
 		return
+	}
+
+	if h.yjsService != nil {
+		if err := h.yjsService.DeleteUpdatesForDocument(documentID); err != nil {
+			log.Printf("[Version] failed to clear yjs_updates after restore doc=%s: %v", documentID, err)
+		}
 	}
 
 	h.historyService.RecordCreation(documentID, userUUID)

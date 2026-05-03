@@ -62,6 +62,17 @@ export function NotificationBell() {
   }, []);
 
   useEffect(() => {
+    const handler = (e: Event) => {
+      const n = (e as CustomEvent<Notification>).detail;
+      if (!n) return;
+      setNotifications((prev) => [n, ...prev]);
+      setUnreadCount((c) => c + 1);
+    };
+    window.addEventListener("notification:new", handler);
+    return () => window.removeEventListener("notification:new", handler);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
       if (

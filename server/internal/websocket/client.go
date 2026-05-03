@@ -3,18 +3,21 @@ package websocket
 import (
 	"encoding/json"
 	"log"
+	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/models"
 )
 
 const (
-	writeWait      = 10 * time.Second
-	pongWait       = 60 * time.Second
-	pingPeriod     = (pongWait * 9) / 10
-	maxMessageSize = 512 * 1024
+	writeWait        = 10 * time.Second
+	pongWait         = 60 * time.Second
+	pingPeriod       = (pongWait * 9) / 10
+	maxMessageSize   = 512 * 1024
+	tokenCheckPeriod = 15 * time.Minute
 )
 
 type Client struct {
@@ -22,21 +25,38 @@ type Client struct {
 	UserID     uuid.UUID
 	UserName   string
 	DocumentID uuid.UUID
+	Token      string
 	Hub        *Hub
 	Conn       *websocket.Conn
 	Send       chan []byte
 }
 
-func NewClient(hub *Hub, conn *websocket.Conn, userID, documentID uuid.UUID, userName string) *Client {
+func NewClient(hub *Hub, conn *websocket.Conn, userID, documentID uuid.UUID, userName, token string) *Client {
 	return &Client{
 		ID:         uuid.New(),
 		UserID:     userID,
 		UserName:   userName,
 		DocumentID: documentID,
+		Token:      token,
 		Hub:        hub,
 		Conn:       conn,
 		Send:       make(chan []byte, 256),
 	}
+}
+
+func isTokenExpired(tokenStr string) bool {
+	if len(strings.Split(tokenStr, ".")) != 3 {
+		return true
+	}
+	p, _, err := new(jwt.Parser).ParseUnverified(tokenStr, jwt.MapClaims{})
+	if err != nil {
+		return true
+	}
+	exp, err := p.Claims.GetExpirationTime()
+	if err != nil || exp == nil {
+		return false
+	}
+	return time.Now().After(exp.Time)
 }
 
 func (c *Client) ReadPump() {
@@ -89,8 +109,10 @@ func (c *Client) ReadPump() {
 
 func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
+	tokenTicker := time.NewTicker(tokenCheckPeriod)
 	defer func() {
 		ticker.Stop()
+		tokenTicker.Stop()
 		c.Conn.Close()
 	}()
 
@@ -118,6 +140,17 @@ func (c *Client) WritePump() {
 		case <-ticker.C:
 			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+
+		case <-tokenTicker.C:
+			if c.Token != "" && isTokenExpired(c.Token) {
+				log.Printf("[WS] token expired for user=%s, closing with 4001", c.UserName)
+				c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+				c.Conn.WriteMessage(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(4001, "token expired"),
+				)
 				return
 			}
 		}

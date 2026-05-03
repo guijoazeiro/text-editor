@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,7 @@ import (
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/services"
 	"github.com/guijoazeiro/text-editor/tree/main/server/internal/websocket"
 	"github.com/joho/godotenv"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
 
@@ -78,7 +80,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
@@ -86,14 +88,18 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 
 	authHandler := handlers.NewAuthHandler(db, jwtService)
 	documentHandler := handlers.NewDocumentHandler(db, snapshotService)
-	collaboratorHandler := handlers.NewCollaboratorHandler(db)
+	collaboratorHandler := handlers.NewCollaboratorHandler(db, hub)
 	notificationHandler := handlers.NewNotificationHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
-	versionHandler := handlers.NewVersionHandler(db, snapshotService, hub)
+	versionHandler := handlers.NewVersionHandler(db, snapshotService, yjsService, hub)
 	wsHandler := handlers.NewWebSocketHandler(hub, db, jwtService)
 
 	permissionService := services.NewPermissionService(db)
 	yjsHandler := handlers.NewYjsHandler(yjsService, permissionService, snapshotService, compactorService)
+
+	shareLinkLimiter := middleware.NewRateLimiter(rate.Every(6*time.Second), 5)
+	loginLimiter := middleware.NewRateLimiter(rate.Every(12*time.Second), 5)  // 5 req/min per IP
+	signupLimiter := middleware.NewRateLimiter(rate.Every(20*time.Second), 3) // 3 req/min per IP
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -111,28 +117,34 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	{
 		auth := api.Group("/auth")
 		{
-			auth.POST("/signup", authHandler.Signup)
-			auth.POST("/login", authHandler.Login)
+			auth.POST("/signup", signupLimiter.Middleware(), authHandler.Signup)
+			auth.POST("/login", loginLimiter.Middleware(), authHandler.Login)
+			auth.POST("/refresh", authHandler.Refresh)
 			auth.GET("/me", middleware.AuthRequired(jwtService), authHandler.Me)
+			auth.PATCH("/me", middleware.AuthRequired(jwtService), authHandler.UpdateMe)
+			auth.POST("/logout", middleware.AuthRequired(jwtService), authHandler.Logout)
 		}
 
 		documents := api.Group("/documents")
 		{
-			documents.GET("/shared/:token", collaboratorHandler.GetByShareLink)
+			documents.GET("/shared/:token", shareLinkLimiter.Middleware(), collaboratorHandler.GetByShareLink)
 
 			protected := documents.Group("")
 			protected.Use(middleware.AuthRequired(jwtService))
 			{
 				protected.POST("", documentHandler.Create)
 				protected.GET("", documentHandler.List)
+				protected.GET("/trash", documentHandler.Trash)
 				protected.GET("/:id", documentHandler.GetByID)
 				protected.PUT("/:id", documentHandler.Update)
 				protected.DELETE("/:id", documentHandler.Delete)
+				protected.POST("/:id/restore", documentHandler.Restore)
 
 				protected.GET("/:id/active-users", wsHandler.GetActiveUsers)
 
 				protected.GET("/:id/yjs-updates", yjsHandler.GetUpdates)
 				protected.GET("/:id/yjs-state-vector", yjsHandler.GetStateVector)
+				protected.GET("/:id/yjs-diff", yjsHandler.GetDiff)
 
 				protected.POST("/:id/collaborators", collaboratorHandler.AddCollaborator)
 				protected.GET("/:id/collaborators", collaboratorHandler.ListCollaborators)

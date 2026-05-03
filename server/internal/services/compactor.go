@@ -238,3 +238,152 @@ func (c *CompactorService) GetStateVector(snapshot []byte) ([]byte, error) {
 
 	return sv, nil
 }
+
+func (c *CompactorService) compactWithRetry(documentID uuid.UUID, maxRetries int) error {
+	var lastErr error
+	for i := range maxRetries {
+		if err := c.compact(documentID); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			wait := time.Duration(i+1) * 2 * time.Second
+			log.Printf("[Compactor] retry %d/%d for doc=%s after %s: %v",
+				i+1, maxRetries, documentID, wait, err)
+			time.Sleep(wait)
+		}
+	}
+	return fmt.Errorf("compaction failed after %d retries: %w", maxRetries, lastErr)
+}
+
+func (c *CompactorService) MaybeCompactWithRetry(documentID uuid.UUID) error {
+	triggered, reason, err := c.shouldCompact(documentID)
+	if err != nil {
+		return fmt.Errorf("compactor: threshold check failed: %w", err)
+	}
+	if !triggered {
+		return nil
+	}
+	log.Printf("[Compactor] threshold reached (%s) for doc=%s — compacting (with retry)", reason, documentID)
+	return c.compactWithRetry(documentID, 3)
+}
+
+type snapshotRequest struct {
+	Updates [][]byte `json:"updates"`
+}
+
+type snapshotWorkerResponse struct {
+	Snapshot string `json:"snapshot"`
+	Error    string `json:"error,omitempty"`
+}
+
+func (c *CompactorService) GetSemanticSnapshot(documentID uuid.UUID) ([]byte, error) {
+	updates, err := c.yjsService.GetUpdates(documentID)
+	if err != nil {
+		return nil, fmt.Errorf("GetSemanticSnapshot: fetch updates: %w", err)
+	}
+	if len(updates) == 0 {
+		return nil, nil
+	}
+
+	rawUpdates := make([][]byte, len(updates))
+	for i, u := range updates {
+		rawUpdates[i] = u.Update
+	}
+
+	body, err := json.Marshal(snapshotRequest{Updates: rawUpdates})
+	if err != nil {
+		return nil, fmt.Errorf("GetSemanticSnapshot: marshal: %w", err)
+	}
+
+	resp, err := c.httpClient.Post(
+		c.config.WorkerURL+"/snapshot",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetSemanticSnapshot: http post: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("GetSemanticSnapshot: read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GetSemanticSnapshot: worker status %d: %s", resp.StatusCode, respBody)
+	}
+
+	var result snapshotWorkerResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("GetSemanticSnapshot: unmarshal: %w", err)
+	}
+	if result.Error != "" {
+		return nil, fmt.Errorf("GetSemanticSnapshot: worker error: %s", result.Error)
+	}
+
+	snap, err := base64.StdEncoding.DecodeString(result.Snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("GetSemanticSnapshot: base64 decode: %w", err)
+	}
+	return snap, nil
+}
+
+type diffRequest struct {
+	Updates     [][]byte `json:"updates"`
+	StateVector string   `json:"stateVector"`
+}
+
+type diffResponse struct {
+	Diff  string `json:"diff"`
+	Error string `json:"error,omitempty"`
+}
+
+func (c *CompactorService) GetDiff(documentID uuid.UUID, clientStateVector []byte) ([]byte, error) {
+	updates, err := c.yjsService.GetUpdates(documentID)
+	if err != nil {
+		return nil, fmt.Errorf("GetDiff: fetch updates: %w", err)
+	}
+
+	rawUpdates := make([][]byte, len(updates))
+	for i, u := range updates {
+		rawUpdates[i] = u.Update
+	}
+
+	svEncoded := base64.StdEncoding.EncodeToString(clientStateVector)
+	body, err := json.Marshal(diffRequest{Updates: rawUpdates, StateVector: svEncoded})
+	if err != nil {
+		return nil, fmt.Errorf("GetDiff: marshal: %w", err)
+	}
+
+	resp, err := c.httpClient.Post(
+		c.config.WorkerURL+"/diff",
+		"application/json",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetDiff: http post: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("GetDiff: read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GetDiff: worker status %d: %s", resp.StatusCode, respBody)
+	}
+
+	var result diffResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("GetDiff: unmarshal: %w", err)
+	}
+	if result.Error != "" {
+		return nil, fmt.Errorf("GetDiff: worker error: %s", result.Error)
+	}
+
+	diff, err := base64.StdEncoding.DecodeString(result.Diff)
+	if err != nil {
+		return nil, fmt.Errorf("GetDiff: base64 decode: %w", err)
+	}
+	return diff, nil
+}

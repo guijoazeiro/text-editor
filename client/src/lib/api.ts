@@ -8,10 +8,19 @@ export const authAPI = {
   login: (data: { email: string; password: string }) =>
     axiosInstance.post("/api/auth/login", data),
   me: () => axiosInstance.get("/api/auth/me"),
+  updateMe: (data: { name: string }) =>
+    axiosInstance.patch("/api/auth/me", data),
+  refresh: () =>
+    axiosInstance.post("/api/auth/refresh", {}, { withCredentials: true }),
+  logout: () => axiosInstance.post("/api/auth/logout"),
 };
 
+
 export const documentsAPI = {
-  list: () => axiosInstance.get("/api/documents"),
+  list: (params?: { page?: number; limit?: number; q?: string }) =>
+    axiosInstance.get("/api/documents", { params }),
+  trash: () => axiosInstance.get("/api/documents/trash"),
+  restore: (id: string) => axiosInstance.post(`/api/documents/${id}/restore`),
   get: (id: string) => axiosInstance.get(`/api/documents/${id}`),
   create: (data: { title: string; content: string; content_format?: string }) =>
     axiosInstance.post("/api/documents", data),
@@ -50,8 +59,8 @@ export const shareLinksAPI = {
 };
 
 export const versionsAPI = {
-  list: (documentId: string) =>
-    axiosInstance.get(`/api/documents/${documentId}/versions`),
+  list: (documentId: string, params?: { page?: number; limit?: number }) =>
+    axiosInstance.get(`/api/documents/${documentId}/versions`, { params }),
   get: (documentId: string, versionNumber: number) =>
     axiosInstance.get(`/api/documents/${documentId}/versions/${versionNumber}`),
   restore: (documentId: string, versionNumber: number) =>

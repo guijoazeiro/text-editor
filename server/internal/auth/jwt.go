@@ -15,6 +15,12 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+type RefreshClaims struct {
+	UserID uuid.UUID `json:"user_id"`
+	Type   string    `json:"type"`
+	jwt.RegisteredClaims
+}
+
 type JWT struct {
 	secret []byte
 }
@@ -32,7 +38,7 @@ func (j *JWT) GenerateToken(userID uuid.UUID, email string) (string, error) {
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 		},
@@ -40,6 +46,36 @@ func (j *JWT) GenerateToken(userID uuid.UUID, email string) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(j.secret)
+}
+
+func (j *JWT) GenerateRefreshToken(userID uuid.UUID) (string, error) {
+	claims := RefreshClaims{
+		UserID: userID,
+		Type:   "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(30 * 24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(j.secret)
+}
+
+func (j *JWT) ValidateRefreshToken(tokenString string) (uuid.UUID, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &RefreshClaims{}, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("invalid signing method")
+		}
+		return j.secret, nil
+	})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	claims, ok := token.Claims.(*RefreshClaims)
+	if !ok || !token.Valid || claims.Type != "refresh" {
+		return uuid.Nil, errors.New("invalid refresh token")
+	}
+	return claims.UserID, nil
 }
 
 func (j *JWT) ValidateToken(tokenString string) (*Claims, error) {

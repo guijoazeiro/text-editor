@@ -42,6 +42,7 @@ export default function EditorPage() {
     versions,
     loading: versionsLoading,
     restoring,
+    pagination: versionPagination,
     fetchVersions,
     restoreVersion,
   } = useVersionHistory({
@@ -51,7 +52,7 @@ export default function EditorPage() {
 
   const openHistory = () => {
     setHistoryOpen(true);
-    fetchVersions();
+    fetchVersions(1, 20);
   };
   const [shareOpen, setShareOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -434,6 +435,8 @@ export default function EditorPage() {
         loading={versionsLoading}
         restoring={restoring}
         onRestore={restoreVersion}
+        pagination={versionPagination}
+        onPageChange={(page) => fetchVersions(page, versionPagination.limit)}
       />
 
       <CollaboratorsModal
