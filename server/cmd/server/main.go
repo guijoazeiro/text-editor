@@ -88,7 +88,7 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 
 	authHandler := handlers.NewAuthHandler(db, jwtService)
 	documentHandler := handlers.NewDocumentHandler(db, snapshotService)
-	collaboratorHandler := handlers.NewCollaboratorHandler(db)
+	collaboratorHandler := handlers.NewCollaboratorHandler(db, hub)
 	notificationHandler := handlers.NewNotificationHandler(db)
 	historyHandler := handlers.NewHistoryHandler(db)
 	versionHandler := handlers.NewVersionHandler(db, snapshotService, yjsService, hub)

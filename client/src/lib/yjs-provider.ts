@@ -185,6 +185,15 @@ export class YjsWebSocketProvider extends Observable<string> {
     this.ws.on("yjs-reset", (message: WSMessage) => {
       this._handleYjsReset(message);
     });
+
+    this.ws.on("notification:new", (message: WSMessage) => {
+      const notification = message.data?.notification;
+      if (notification) {
+        window.dispatchEvent(
+          new CustomEvent("notification:new", { detail: notification }),
+        );
+      }
+    });
   }
 
   private _setupAwarenessListeners() {

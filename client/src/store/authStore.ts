@@ -80,3 +80,12 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+if (typeof window !== "undefined") {
+  window.addEventListener("ws:token-refreshed", (e: Event) => {
+    const newToken = (e as CustomEvent<string>).detail;
+    if (newToken) {
+      useAuthStore.getState().setToken(newToken);
+    }
+  });
+}

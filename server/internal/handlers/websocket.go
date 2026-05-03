@@ -89,7 +89,7 @@ func (h *WebSocketHandler) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	client := ws.NewClient(h.hub, conn, userUUID, documentID, user.Name)
+	client := ws.NewClient(h.hub, conn, userUUID, documentID, user.Name, token)
 
 	h.hub.Register <- client
 

@@ -24,6 +24,7 @@ type Message struct {
 
 type Hub struct {
 	Clients          map[uuid.UUID]map[*Client]bool
+	UserClients      map[uuid.UUID]map[*Client]bool
 	Broadcast        chan *Message
 	Register         chan *Client
 	Unregister       chan *Client
@@ -42,6 +43,7 @@ func NewHub(
 ) *Hub {
 	return &Hub{
 		Clients:          make(map[uuid.UUID]map[*Client]bool),
+		UserClients:      make(map[uuid.UUID]map[*Client]bool),
 		Broadcast:        make(chan *Message, 256),
 		Register:         make(chan *Client),
 		Unregister:       make(chan *Client),
@@ -49,6 +51,24 @@ func NewHub(
 		snapshotService:  snapshotService,
 		compactorService: compactorService,
 		restoringDocs:    make(map[uuid.UUID]bool),
+	}
+}
+
+func (h *Hub) SendToUser(userID uuid.UUID, msg models.WSMessage) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[Hub] SendToUser: marshal error for user=%s: %v", userID, err)
+		return
+	}
+	h.mu.RLock()
+	clients := h.UserClients[userID]
+	h.mu.RUnlock()
+	for c := range clients {
+		select {
+		case c.Send <- data:
+		default:
+			log.Printf("[Hub] SendToUser: send buffer full for client=%s, skipping", c.ID)
+		}
 	}
 }
 
@@ -61,6 +81,10 @@ func (h *Hub) Run() {
 				h.Clients[client.DocumentID] = make(map[*Client]bool)
 			}
 			h.Clients[client.DocumentID][client] = true
+			if h.UserClients[client.UserID] == nil {
+				h.UserClients[client.UserID] = make(map[*Client]bool)
+			}
+			h.UserClients[client.UserID][client] = true
 			h.mu.Unlock()
 
 			log.Printf("Client registered: user=%s doc=%s", client.UserName, client.DocumentID)
@@ -83,6 +107,12 @@ func (h *Hub) Run() {
 						delete(h.Clients, client.DocumentID)
 						docBecameIdle = true
 					}
+				}
+			}
+			if uc, ok := h.UserClients[client.UserID]; ok {
+				delete(uc, client)
+				if len(uc) == 0 {
+					delete(h.UserClients, client.UserID)
 				}
 			}
 			h.mu.Unlock()
