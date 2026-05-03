@@ -165,6 +165,22 @@ export default function DashboardPage() {
     }
   };
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeletingId(id);
+    try {
+      await documentsAPI.delete(id);
+      setDocuments((prev) => prev.filter((d) => d.id !== id));
+      toast.success("Document moved to trash");
+    } catch {
+      toast.error("Failed to delete document");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const createDocument = async () => {
     setCreating(true);
     try {
@@ -329,8 +345,57 @@ export default function DashboardPage() {
                 </p>
 
                 <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mt-4 pt-4 border-t border-[var(--border)]">
-                  <span className="truncate max-w-[50%]">{doc.user.name}</span>
-                  <span>{formatDate(doc.updated_at)}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="truncate max-w-[120px]">
+                      {doc.user.name}
+                    </span>
+                    <span className="shrink-0">
+                      {formatDate(doc.updated_at)}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={(e) => handleDelete(doc.id, e)}
+                    disabled={deletingId === doc.id}
+                    title="Move to trash"
+                    className="shrink-0 ml-2 flex items-center justify-center w-6 h-6 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all disabled:opacity-40"
+                  >
+                    {deletingId === doc.id ? (
+                      <svg
+                        className="w-3 h-3 animate-spin"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    )}
+                  </button>
                 </div>
               </div>
             ))}
