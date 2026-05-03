@@ -17,8 +17,10 @@ export const authAPI = {
 
 
 export const documentsAPI = {
-  list: (params?: { page?: number; limit?: number }) =>
+  list: (params?: { page?: number; limit?: number; q?: string }) =>
     axiosInstance.get("/api/documents", { params }),
+  trash: () => axiosInstance.get("/api/documents/trash"),
+  restore: (id: string) => axiosInstance.post(`/api/documents/${id}/restore`),
   get: (id: string) => axiosInstance.get(`/api/documents/${id}`),
   create: (data: { title: string; content: string; content_format?: string }) =>
     axiosInstance.post("/api/documents", data),

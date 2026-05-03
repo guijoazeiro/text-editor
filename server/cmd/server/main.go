@@ -98,6 +98,8 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	yjsHandler := handlers.NewYjsHandler(yjsService, permissionService, snapshotService, compactorService)
 
 	shareLinkLimiter := middleware.NewRateLimiter(rate.Every(6*time.Second), 5)
+	loginLimiter := middleware.NewRateLimiter(rate.Every(12*time.Second), 5)  // 5 req/min per IP
+	signupLimiter := middleware.NewRateLimiter(rate.Every(20*time.Second), 3) // 3 req/min per IP
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -115,8 +117,8 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 	{
 		auth := api.Group("/auth")
 		{
-			auth.POST("/signup", authHandler.Signup)
-			auth.POST("/login", authHandler.Login)
+			auth.POST("/signup", signupLimiter.Middleware(), authHandler.Signup)
+			auth.POST("/login", loginLimiter.Middleware(), authHandler.Login)
 			auth.POST("/refresh", authHandler.Refresh)
 			auth.GET("/me", middleware.AuthRequired(jwtService), authHandler.Me)
 			auth.PATCH("/me", middleware.AuthRequired(jwtService), authHandler.UpdateMe)
@@ -132,9 +134,11 @@ func setupRouter(db *gorm.DB, cfg *config.Config, jwtService *auth.JWT, hub *web
 			{
 				protected.POST("", documentHandler.Create)
 				protected.GET("", documentHandler.List)
+				protected.GET("/trash", documentHandler.Trash)
 				protected.GET("/:id", documentHandler.GetByID)
 				protected.PUT("/:id", documentHandler.Update)
 				protected.DELETE("/:id", documentHandler.Delete)
+				protected.POST("/:id/restore", documentHandler.Restore)
 
 				protected.GET("/:id/active-users", wsHandler.GetActiveUsers)
 
