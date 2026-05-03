@@ -15,14 +15,15 @@ const (
 )
 
 type Document struct {
-	ID            uuid.UUID     `gorm:"type:uuid;primary_key" json:"id"`
-	Title         string        `gorm:"not null" json:"title" binding:"required"`
-	Content       string        `gorm:"type:text" json:"content"`
-	ContentFormat ContentFormat `gorm:"type:varchar(20);not null;default:'text'" json:"content_format"`
-	UserID        uuid.UUID     `gorm:"type:uuid;not null" json:"user_id"`
-	User          User          `gorm:"foreignKey:UserID" json:"user"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	ID            uuid.UUID      `gorm:"type:uuid;primary_key" json:"id"`
+	Title         string         `gorm:"not null" json:"title" binding:"required"`
+	Content       string         `gorm:"type:text" json:"content"`
+	ContentFormat ContentFormat  `gorm:"type:varchar(20);not null;default:'text'" json:"content_format"`
+	UserID        uuid.UUID      `gorm:"type:uuid;not null" json:"user_id"`
+	User          User           `gorm:"foreignKey:UserID" json:"user"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+	DeletedAt     gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (d *Document) BeforeCreate(tx *gorm.DB) error {

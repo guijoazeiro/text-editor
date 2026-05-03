@@ -92,3 +92,9 @@ func (s *YjsService) DeleteOldUpdates(olderThan time.Time) error {
 		Where("created_at < ?", olderThan).
 		Delete(&models.YjsUpdate{}).Error
 }
+
+func (s *YjsService) DeleteUpdatesForDocument(documentID uuid.UUID) error {
+	return s.db.
+		Where("document_id = ?", documentID).
+		Delete(&models.YjsUpdate{}).Error
+}

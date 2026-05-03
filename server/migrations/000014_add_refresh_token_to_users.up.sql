@@ -1,0 +1,3 @@
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS refresh_token_hash TEXT    NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS refresh_token_exp  TIMESTAMPTZ;

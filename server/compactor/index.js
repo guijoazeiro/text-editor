@@ -46,6 +46,32 @@ async function main() {
     }
   });
 
+  app.post("/snapshot", (req, res) => {
+    const { updates } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "updates must be a non-empty array" });
+    }
+
+    try {
+      const doc = new yjs.Doc();
+      for (const u of updates) {
+        const bytes =
+          typeof u === "string"
+            ? new Uint8Array(Buffer.from(u, "base64"))
+            : new Uint8Array(u);
+        yjs.applyUpdate(doc, bytes);
+      }
+      const snap = yjs.encodeSnapshot(yjs.snapshot(doc));
+      res.json({ snapshot: Buffer.from(snap).toString("base64") });
+    } catch (err) {
+      console.error("[compactor] error during snapshot:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/state-vector", (req, res) => {
     const { snapshot } = req.body;
 
@@ -62,6 +88,37 @@ async function main() {
       res.json({ stateVector: Buffer.from(stateVector).toString("base64") });
     } catch (err) {
       console.error("[compactor] error computing state vector:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/diff", (req, res) => {
+    const { updates, stateVector } = req.body;
+
+    if (!Array.isArray(updates)) {
+      return res.status(400).json({ error: "updates must be an array" });
+    }
+    if (!stateVector || typeof stateVector !== "string") {
+      return res
+        .status(400)
+        .json({ error: "stateVector must be a base64 string" });
+    }
+
+    try {
+      const doc = new yjs.Doc();
+      for (const u of updates) {
+        const bytes =
+          typeof u === "string"
+            ? new Uint8Array(Buffer.from(u, "base64"))
+            : new Uint8Array(u);
+        yjs.applyUpdate(doc, bytes);
+      }
+
+      const sv = new Uint8Array(Buffer.from(stateVector, "base64"));
+      const diff = yjs.encodeStateAsUpdate(doc, sv);
+      res.json({ diff: Buffer.from(diff).toString("base64") });
+    } catch (err) {
+      console.error("[compactor] error computing diff:", err.message);
       res.status(500).json({ error: err.message });
     }
   });

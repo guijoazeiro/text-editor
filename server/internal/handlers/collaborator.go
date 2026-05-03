@@ -18,11 +18,11 @@ type CollaboratorHandler struct {
 	notificationService *services.NotificationService
 }
 
-func NewCollaboratorHandler(db *gorm.DB) *CollaboratorHandler {
+func NewCollaboratorHandler(db *gorm.DB, hub services.NotificationHub) *CollaboratorHandler {
 	return &CollaboratorHandler{
 		db:                  db,
 		permissionService:   services.NewPermissionService(db),
-		notificationService: services.NewNotificationService(db),
+		notificationService: services.NewNotificationServiceWithHub(db, hub),
 	}
 }
 

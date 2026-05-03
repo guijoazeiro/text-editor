@@ -11,7 +11,8 @@ export type MessageType =
   | "yjs-awareness-off"
   | "yjs-reset"
   | "yjs-init"
-  | "document-content-reset";
+  | "document-content-reset"
+  | "notification:new";
 
 export interface WSMessage {
   type: MessageType;
@@ -111,9 +112,38 @@ export class WebSocketClient {
       }
     };
 
-    this.ws.onclose = (event) => {
+    this.ws.onclose = async (event) => {
       console.log("WebSocket disconnected", event.code, event.reason);
       this.disconnectionHandlers.forEach((handler) => handler());
+
+      if (event.code === 4001) {
+        console.warn("[WS] token expired (4001) — attempting refresh");
+        try {
+          const API_URL =
+            process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+          const res = await fetch(`${API_URL}/api/auth/refresh`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (res.ok) {
+            const json = await res.json();
+            const newToken: string = json?.data?.token;
+            if (newToken) {
+              this.token = newToken;
+              // Notify stores via a custom event so the auth store can persist
+              window.dispatchEvent(
+                new CustomEvent("ws:token-refreshed", { detail: newToken }),
+              );
+              this.reconnectAttempts = 0;
+              this.connect();
+              return;
+            }
+          }
+        } catch {}
+        // Refresh failed → go to login
+        window.location.href = "/login";
+        return;
+      }
 
       if (event.code !== 1000 && event.code !== 1001) {
         this.attemptReconnect();
