@@ -23,16 +23,23 @@ A collaborative document editor inspired by Google Docs, built from scratch to l
 ## Features
 
 ### Authentication
-- Sign-up and login with JWT (24h expiry)
+- Sign-up and login with JWT (access token 24h, refresh token 30 days via HttpOnly cookie)
 - bcrypt password hashing
 - Route protection middleware (HTTP and WebSocket)
 - WebSocket auth via **subprotocol** (`Sec-WebSocket-Protocol`) — safer than query params; token never appears in server logs
 - JWT expiry check on store rehydration — expired sessions are cleared automatically on page load
+- **Token refresh:** `axios` interceptor retries failed 401 requests after calling `POST /api/auth/refresh`; WebSocket client handles close code `4001` (token expired on long-lived connection) and refreshes silently without interrupting the session
+- **Rate limiting on auth endpoints:** login limited to 5 req/min per IP, signup to 3 req/min per IP (token bucket, in-memory, with automatic cleanup)
+- `PATCH /api/auth/me` — update display name
 
 ### Documents
 - Full CRUD with automatic owner assignment
 - `content_format` field to distinguish legacy plain text (`"text"`) from rich text (`"tiptap"`)
 - `User` relation preloaded on all responses
+- **Soft delete:** `DELETE /api/documents/:id` sets `deleted_at` instead of removing the row; documents are recoverable via the Trash panel for 30 days before being permanently purged
+- **Trash & Restore:** `GET /api/documents/trash` lists soft-deleted documents; `POST /api/documents/:id/restore` recovers them
+- **Full-text search:** `GET /api/documents?q=term` uses PostgreSQL `tsvector` + `websearch_to_tsquery` with a GIN index; results are ranked by `ts_rank` (title weighted higher than content)
+- **Pagination:** `?page=N&limit=N` on the document list
 
 ### Permission System
 - Three levels: `owner`, `editor`, `viewer`
@@ -53,6 +60,7 @@ A collaborative document editor inspired by Google Docs, built from scratch to l
 - Mark as read individually or in bulk
 - Unread counter badge in the navbar
 - Real-time dropdown accessible from any page
+- **Real-time push via WebSocket:** notifications are delivered instantly over the existing WS connection (`notification:new` message) without polling — the `Hub` maintains a `UserClients` index to target all active connections for a specific user
 
 ### History & Versioning
 - Edit history: who edited, when, and what changed (diff)
@@ -68,6 +76,7 @@ A collaborative document editor inspired by Google Docs, built from scratch to l
 - Event broadcast to all clients in the room
 - Automatic reconnection with exponential backoff (up to 5 attempts)
 - JWT auth via WebSocket subprotocol
+- **JWT expiry check on long-lived connections:** a 15-minute ticker in `WritePump` parses the raw JWT (`ParseUnverified`) and sends close code `4001` if expired; the client intercepts `4001`, calls `POST /api/auth/refresh`, and reconnects automatically
 
 ### CRDT with Yjs
 **Why CRDT?** Operational Transformation (OT, used in the original Google Docs) resolves simultaneous edit conflicts via mathematical transformations that require a central server as an arbiter. CRDT solves the same problem by design — each operation is commutative and idempotent, so two clients applying the same operations in any order reach the same result, without a central arbiter.
@@ -118,6 +127,9 @@ The Go backend **does not need to understand** Yjs content — it is a pure rela
 - Toast notifications for all async actions (success / error)
 - Version history slide-in panel with restore confirmation modal
 - Collaborators modal with invite by email, permission selector, public link management
+- **Dashboard search bar** with 350 ms debounce — filters documents by title or content via FTS
+- **Trash panel** in the dashboard — shows soft-deleted documents with a Restore button; permanent purge after 30 days
+- **Soft-delete button** on each document card (appears on hover, single click, no confirmation needed since it's reversible)
 
 ---
 
@@ -200,7 +212,10 @@ text-editor/
     │   ├── 000010 → content_format on documents
     │   ├── 000011 → lamport_ts + client_id on yjs_updates
     │   ├── 000012 → yjs_snapshots
-    │   └── 000013 → yjs_snapshot on document_versions
+    │   ├── 000013 → yjs_snapshot on document_versions
+    │   ├── 000014 → refresh_token on users
+    │   ├── 000015 → soft delete (deleted_at) on documents
+    │   └── 000016 → tsvector FTS column + GIN index on documents
     └── pkg/response/           # Standardized responses
 ```
 
@@ -253,17 +268,22 @@ Open `http://localhost:3000`.
 | Method | Route | Description |
 |--------|-------|-------------|
 | POST | `/api/auth/signup` | Create account |
-| POST | `/api/auth/login` | Login (returns JWT) |
+| POST | `/api/auth/login` | Login (returns access JWT + sets refresh cookie) |
+| POST | `/api/auth/refresh` | Refresh access token via HttpOnly cookie |
 | GET | `/api/auth/me` | Authenticated user data |
+| PATCH | `/api/auth/me` | Update display name |
+| POST | `/api/auth/logout` | Revoke refresh token |
 
 ### Documents
 | Method | Route | Description |
 |--------|-------|-------------|
 | POST | `/api/documents` | Create document |
-| GET | `/api/documents` | List (owned + shared) |
+| GET | `/api/documents?q=&page=&limit=` | List (owned + shared), with FTS search |
+| GET | `/api/documents/trash` | List soft-deleted documents |
 | GET | `/api/documents/:id` | Fetch by ID + permission |
 | PUT | `/api/documents/:id` | Update |
-| DELETE | `/api/documents/:id` | Delete (owner only) |
+| DELETE | `/api/documents/:id` | Soft delete — moves to Trash |
+| POST | `/api/documents/:id/restore` | Restore from Trash |
 
 ### Collaboration
 | Method | Route | Description |
@@ -326,3 +346,13 @@ Open `http://localhost:3000`.
 **CSS variable–based theming:** Instead of Tailwind dark-mode utility classes scattered across components, all color tokens are defined as CSS variables in `globals.css` (e.g. `--bg-base`, `--text-primary`, `--border`). The `ThemeProvider` component toggles the `.dark` class on `<html>`, which swaps the variable values. This means every component is theme-aware by default, and adding a third theme (e.g. high-contrast) requires changing only the CSS variable definitions.
 
 **Type-safe frontend architecture:** All API response shapes are defined in `src/types/` (document, user, collaborator, notification, version). The `authStore` (Zustand + persist) validates the JWT expiry on rehydration and clears expired sessions before any route guard runs — preventing stale auth state after a long idle period.
+
+**Refresh token with SHA-256:** Refresh tokens are random high-entropy strings — bcrypt is intentionally slow and designed for low-entropy passwords. Tokens are stored as SHA-256 hashes (`hex.EncodeToString(sha256.Sum256(token))`) which is fast, collision-resistant, and appropriate for pre-validated secrets.
+
+**Real-time notifications via WebSocket:** The `Hub` maintains a `UserClients map[uuid.UUID]map[*Client]bool` index alongside the per-document index. `NotificationService` holds a `NotificationHub` interface (to avoid circular imports) and calls `SendToUser` after each DB insert, delivering the notification instantly to all active connections of the target user. The frontend `NotificationBell` listens for a global `notification:new` `CustomEvent` dispatched by `yjs-provider.ts`.
+
+**JWT expiry on long-lived WebSocket connections:** A short-lived HTTP JWT is fine for API calls (each request re-validates), but a WebSocket connection can stay open for hours. A 15-minute `tokenTicker` in `WritePump` calls `jwt.ParseUnverified` (no key needed — just reads the `exp` claim) and sends close code `4001` if expired. The frontend `WebSocketClient` catches `4001`, calls `POST /api/auth/refresh`, updates the token in `authStore`, dispatches `ws:token-refreshed`, and reconnects — no user action required.
+
+**Soft delete and PostgreSQL FTS:** Documents are never immediately deleted — `DELETE /api/documents/:id` sets `deleted_at` (GORM `DeletedAt` field, automatically filtered from all queries). A background goroutine purges records older than 30 days. Full-text search uses a `tsvector` generated column (`GENERATED ALWAYS AS ... STORED`) combining title (weight A) and content (weight B), with a GIN index for fast `@@` lookups and `ts_rank` ordering. `websearch_to_tsquery` is used instead of `plainto_tsquery` to support quoted phrases and exclusions.
+
+**Docker `.dockerignore`:** The `compactor/` directory contains a Node.js worker with its own `node_modules`. Without `.dockerignore`, `docker build` transfers `node_modules` to the daemon — causing failures due to file names with special characters (e.g. `@scope/pkg`, `0ecdsa-generate-keypair`). The `.dockerignore` excludes `compactor/node_modules`, `bin/`, and `.env` files.
