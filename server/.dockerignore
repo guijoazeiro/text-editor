@@ -1,0 +1,17 @@
+compactor/node_modules
+compactor/.npm
+compactor/dist
+compactor/*.log
+
+bin/
+*.exe
+*.test
+*.out
+
+.vscode
+.idea
+*.DS_Store
+
+.env
+.env.*
+!.env.example

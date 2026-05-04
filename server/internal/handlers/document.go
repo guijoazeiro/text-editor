@@ -129,20 +129,32 @@ func (h *DocumentHandler) List(c *gin.Context) {
 	offset := (page - 1) * limit
 	q := c.Query("q")
 
-	ownedQ := h.db.Model(&models.Document{}).Where("user_id = ?", userUUID)
+	var ftsCondition string
+	var ftsArg string
 	if q != "" {
-		ownedQ = ownedQ.Where("title ILIKE ? OR content ILIKE ?", "%"+q+"%", "%"+q+"%")
+		ftsCondition = "search_vector @@ websearch_to_tsquery('english', ?)"
+		ftsArg = q
+	}
+
+	ownedBase := h.db.Model(&models.Document{}).Where("user_id = ?", userUUID)
+	if ftsCondition != "" {
+		ownedBase = ownedBase.Where(ftsCondition, ftsArg)
 	}
 
 	var total int64
-	ownedQ.Count(&total)
+	ownedBase.Count(&total)
 
 	ownedQuery := h.db.Preload("User").Where("user_id = ?", userUUID)
-	if q != "" {
-		ownedQuery = ownedQuery.Where("title ILIKE ? OR content ILIKE ?", "%"+q+"%", "%"+q+"%")
+	if ftsCondition != "" {
+		ownedQuery = ownedQuery.Where(ftsCondition, ftsArg)
+		ownedQuery = ownedQuery.Order(gorm.Expr(
+			"ts_rank(search_vector, websearch_to_tsquery('english', ?)) DESC", ftsArg,
+		))
+	} else {
+		ownedQuery = ownedQuery.Order("created_at DESC")
 	}
 	var ownedDocs []models.Document
-	if err := ownedQuery.Order("created_at DESC").Limit(limit).Offset(offset).Find(&ownedDocs).Error; err != nil {
+	if err := ownedQuery.Limit(limit).Offset(offset).Find(&ownedDocs).Error; err != nil {
 		response.Error(c, http.StatusInternalServerError, "Failed to fetch documents", err)
 		return
 	}
