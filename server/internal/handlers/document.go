@@ -34,8 +34,6 @@ func NewDocumentHandler(db *gorm.DB, snapshotService *services.SnapshotService) 
 	return h
 }
 
-// startPurgeLoop permanently deletes documents that have been in the trash for
-// more than 30 days. Runs daily via an infinite loop with a 24h sleep.
 func (h *DocumentHandler) startPurgeLoop() {
 	for {
 		time.Sleep(24 * time.Hour)
@@ -344,7 +342,6 @@ func (h *DocumentHandler) Trash(c *gin.Context) {
 	response.Success(c, http.StatusOK, "Trash fetched successfully", docs)
 }
 
-// Restore undeletes a soft-deleted document (sets deleted_at = NULL).
 func (h *DocumentHandler) Restore(c *gin.Context) {
 	userUUID, ok := parseUserUUID(c)
 	if !ok {
