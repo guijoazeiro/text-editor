@@ -187,16 +187,18 @@ text-editor/
 │           └── index.ts
 │
 └── server/                     # Go backend
-    ├── cmd/server/main.go
+    ├── cmd/server/main.go      # Thin entry-point (~17 lines): loads .env, calls app.Run()
     ├── compactor/              # Node.js worker for Yjs merge operations
     │   └── index.js            # /compact, /state-vector, /health endpoints
     ├── internal/
+    │   ├── app/                # Dependency wiring + server bootstrap (app.Run)
     │   ├── auth/               # JWT + bcrypt
-    │   ├── config/
+    │   ├── config/             # Config struct + env var parsing (incl. ALLOWED_ORIGINS)
     │   ├── database/           # Connection + migrations runner
     │   ├── handlers/           # HTTP handlers (Gin)
-    │   ├── middleware/         # Auth middleware
+    │   ├── middleware/         # Auth + rate-limit middleware
     │   ├── models/             # GORM models
+    │   ├── router/             # Gin engine setup (router.go) + route registration (routes.go)
     │   ├── services/           # Business logic
     │   └── websocket/          # Hub + Client (gorilla/websocket)
     ├── migrations/             # Versioned SQL (golang-migrate)
@@ -234,6 +236,9 @@ cd server
 
 # Copy environment variables
 cp .env.example .env
+
+# (Optional) Allow additional origins for CORS — comma-separated
+# echo "ALLOWED_ORIGINS=http://localhost:3000,https://myapp.com" >> .env
 
 # Start PostgreSQL + backend (migrations run automatically)
 docker-compose up -d
@@ -355,4 +360,6 @@ Open `http://localhost:3000`.
 
 **Soft delete and PostgreSQL FTS:** Documents are never immediately deleted — `DELETE /api/documents/:id` sets `deleted_at` (GORM `DeletedAt` field, automatically filtered from all queries). A background goroutine purges records older than 30 days. Full-text search uses a `tsvector` generated column (`GENERATED ALWAYS AS ... STORED`) combining title (weight A) and content (weight B), with a GIN index for fast `@@` lookups and `ts_rank` ordering. `websearch_to_tsquery` is used instead of `plainto_tsquery` to support quoted phrases and exclusions.
 
-**Docker `.dockerignore`:** The `compactor/` directory contains a Node.js worker with its own `node_modules`. Without `.dockerignore`, `docker build` transfers `node_modules` to the daemon — causing failures due to file names with special characters (e.g. `@scope/pkg`, `0ecdsa-generate-keypair`). The `.dockerignore` excludes `compactor/node_modules`, `bin/`, and `.env` files.
+**Docker `.dockerignore`:** The `compactor/` directory contains a Node.js worker with its own `node_modules`. Without `.dockerignore`, `docker build` transfers `node_modules` to the daemon — causing failures due to file names with special characters (e.g. `@scope/pkg`, `0ecdsa-generate-keypair`). The `.dockerignore` excludes `compactor/node_modules`, `bin/`, and `.env` files.
+
+**Server clean architecture:** `cmd/server/main.go` is a thin entry-point (~17 lines) that loads `.env` and calls `app.Run()`. All dependency wiring (DB, services, WebSocket hub) lives in `internal/app/app.go`. The Gin engine and CORS configuration are created in `internal/router/router.go`; route registration is split by domain group (auth, documents, notifications, WebSocket) in `internal/router/routes.go`. A `Dependencies` struct replaces the growing function parameter list — adding a new service only requires updating the struct and `app.go`, with no changes to any route function signatures. CORS allowed origins are read from the `ALLOWED_ORIGINS` environment variable (comma-separated), defaulting to `http://localhost:3000`.
