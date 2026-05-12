@@ -223,6 +223,45 @@ text-editor/
 
 ---
 
+## Testing
+
+The Go backend has a comprehensive integration and unit test suite covering business logic, HTTP handlers, and middleware — **all tests run without a real database** using `go-sqlmock`.
+
+### Running tests
+
+```bash
+cd server
+
+# Run all tests
+go test ./internal/...
+
+# Run with coverage report
+go test ./internal/... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+
+# Run a specific package
+go test ./internal/services/...
+go test ./internal/handlers/...
+```
+
+### Coverage by package
+
+| Package | Coverage | What is tested |
+|---------|----------|----------------|
+| `internal/auth` | ~91% | JWT sign/verify, bcrypt, token refresh |
+| `internal/middleware` | ~89% | Auth guard, rate limiter (allow/deny/IP isolation) |
+| `internal/handlers` | ~58% | All HTTP handlers: documents, collaborators, history, versions, Yjs, notifications, WebSocket |
+| `internal/services` | ~34% | HistoryService, YjsService, VersionService, NotificationService, PermissionService |
+
+### Test strategy
+
+- **Integration-unit hybrid:** Gin router + real handler code + `go-sqlmock` — validates routes, bindings, permission checks, and SQL queries without a live database.
+- **Service unit tests:** Direct service method calls with a mocked `*gorm.DB`, covering success paths, error paths, and edge cases (e.g. `RecordUpdate` with no changes, `CompactUpdates` rollback on failure).
+- **Middleware tests:** `RateLimiter` tested end-to-end with a real `gin.Engine` — verifies per-IP token bucket isolation and 429 response after burst exhaustion.
+- **Not tested (intentional):** `HandleWebSocket` (requires a real WebSocket upgrade), `CompactorService` / `SnapshotService` (depend on an external Node.js worker), and infrastructure packages (`app`, `config`, `database`, `router`).
+
+---
+
 ## Running Locally
 
 ### Prerequisites
