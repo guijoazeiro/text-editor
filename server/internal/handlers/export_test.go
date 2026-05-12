@@ -16,3 +16,11 @@ func ContainsInsensitive(s, sub string) bool {
 func ToLower(r rune) rune {
 	return toLower(r)
 }
+
+func ParseIntQuery(c *gin.Context, key string, fallback int) int {
+	return parseIntQuery(c, key, fallback)
+}
+
+func Clamp(v, lo, hi int) int {
+	return clamp(v, lo, hi)
+}
