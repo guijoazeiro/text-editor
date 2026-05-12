@@ -223,6 +223,45 @@ text-editor/
 
 ---
 
+## Testes
+
+O backend Go possui uma suite abrangente de testes de integração e unitários cobrindo lógica de negócio, handlers HTTP e middleware — **todos os testes rodam sem banco de dados real**, usando `go-sqlmock`.
+
+### Rodando os testes
+
+```bash
+cd server
+
+# Rodar todos os testes
+go test ./internal/...
+
+# Rodar com relatório de cobertura
+go test ./internal/... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+
+# Rodar um pacote específico
+go test ./internal/services/...
+go test ./internal/handlers/...
+```
+
+### Cobertura por pacote
+
+| Pacote | Cobertura | O que é testado |
+|--------|-----------|------------------|
+| `internal/auth` | ~91% | Geração/verificação de JWT, bcrypt, refresh token |
+| `internal/middleware` | ~89% | Guard de autenticação, rate limiter (allow/deny/isolamento por IP) |
+| `internal/handlers` | ~58% | Todos os handlers HTTP: documentos, colaboradores, histórico, versões, Yjs, notificações, WebSocket |
+| `internal/services` | ~34% | HistoryService, YjsService, VersionService, NotificationService, PermissionService |
+
+### Estratégia de testes
+
+- **Híbrido integração-unitário:** Roteador Gin + código real do handler + `go-sqlmock` — valida rotas, bindings, verificações de permissão e queries SQL sem banco de dados real.
+- **Testes unitários de serviços:** Chamadas diretas aos métodos de serviço com `*gorm.DB` mockado, cobrindo caminhos de sucesso, erros e casos extremos (ex: `RecordUpdate` sem alterações, `CompactUpdates` com rollback em caso de falha).
+- **Testes de middleware:** `RateLimiter` testado end-to-end com um `gin.Engine` real — verifica isolamento do token bucket por IP e resposta 429 após esgotamento do burst.
+- **Não testados (intencional):** `HandleWebSocket` (requer upgrade WebSocket real), `CompactorService` / `SnapshotService` (dependem de um worker Node.js externo) e pacotes de infraestrutura (`app`, `config`, `database`, `router`).
+
+---
+
 ## Como rodar
 
 ### Pré-requisitos
