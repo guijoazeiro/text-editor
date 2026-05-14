@@ -85,6 +85,7 @@ func registerDocuments(api *gin.RouterGroup, deps Dependencies) {
 			protected.GET("/:id/yjs-updates", yjsHandler.GetUpdates)
 			protected.GET("/:id/yjs-state-vector", yjsHandler.GetStateVector)
 			protected.GET("/:id/yjs-diff", yjsHandler.GetDiff)
+			protected.POST("/:id/yjs/reset", yjsHandler.ResetState)
 
 			protected.POST("/:id/collaborators", collaboratorHandler.AddCollaborator)
 			protected.GET("/:id/collaborators", collaboratorHandler.ListCollaborators)

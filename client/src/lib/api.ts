@@ -15,7 +15,6 @@ export const authAPI = {
   logout: () => axiosInstance.post("/api/auth/logout"),
 };
 
-
 export const documentsAPI = {
   list: (params?: { page?: number; limit?: number; q?: string }) =>
     axiosInstance.get("/api/documents", { params }),
@@ -79,4 +78,9 @@ export const notificationsAPI = {
     axiosInstance.put(`/api/notifications/${id}/read`),
   markAllAsRead: () => axiosInstance.put("/api/notifications/read-all"),
   delete: (id: string) => axiosInstance.delete(`/api/notifications/${id}`),
+};
+
+export const yjsAPI = {
+  resetState: (documentId: string, update: number[]) =>
+    axiosInstance.post(`/api/documents/${documentId}/yjs/reset`, { update }),
 };
