@@ -78,18 +78,38 @@ export class YjsWebSocketProvider extends Observable<string> {
               ? new Uint8Array(item as number[])
               : (item as Uint8Array);
           })
-          .filter((u) => u.length > 0);
+
+          .filter((u) => u.length >= 2);
 
         if (arrays.length === 0) {
-          console.log("[Yjs] All init updates were invalid (old format?)");
+          console.log("[Yjs] All init updates were empty/invalid — skipping");
         } else {
-          const merged = Y.mergeUpdates(arrays);
-
-          Y.applyUpdate(serverDoc, merged);
-
-          Y.applyUpdate(this.doc, merged, this);
+          let applied = 0;
+          try {
+            const merged = Y.mergeUpdates(arrays);
+            Y.applyUpdate(serverDoc, merged);
+            Y.applyUpdate(this.doc, merged, this);
+            applied = arrays.length;
+          } catch (mergeErr) {
+            console.warn(
+              "[Yjs] mergeUpdates failed, falling back to one-by-one apply:",
+              mergeErr,
+            );
+            for (const update of arrays) {
+              try {
+                Y.applyUpdate(serverDoc, update);
+                Y.applyUpdate(this.doc, update, this);
+                applied++;
+              } catch (singleErr) {
+                console.warn(
+                  `[Yjs] Skipping malformed update (${update.length} bytes):`,
+                  singleErr,
+                );
+              }
+            }
+          }
           console.log(
-            `[Yjs] Applied init snapshot (${arrays.length} updates merged)`,
+            `[Yjs] Applied init snapshot (${applied}/${arrays.length} updates)`,
           );
         }
       } catch (err) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import * as Y from "yjs";
 import { useParams, useRouter } from "next/navigation";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -9,7 +10,7 @@ import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useAuthStore } from "@/store/authStore";
-import { documentsAPI } from "@/lib/api";
+import { documentsAPI, yjsAPI } from "@/lib/api";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useYjsEditor } from "@/hooks/useYjsEditor";
 import { useVersionHistory } from "@/hooks/useVersionHistory";
@@ -251,6 +252,12 @@ export default function EditorPage() {
         content: json,
         content_format: "tiptap",
       });
+
+      const update = Array.from(Y.encodeStateAsUpdate(ydoc));
+      if (update.length >= 2) {
+        await yjsAPI.resetState(documentId, update);
+        console.log("[Save] CRDT state synced to server");
+      }
     } catch (err) {
       console.error("Failed to save:", err);
     } finally {

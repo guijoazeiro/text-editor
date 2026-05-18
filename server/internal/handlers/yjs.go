@@ -164,3 +164,53 @@ func (h *YjsHandler) GetDiff(c *gin.Context) {
 		"diff": base64.StdEncoding.EncodeToString(diff),
 	})
 }
+
+func (h *YjsHandler) ResetState(c *gin.Context) {
+	userUUID, ok := parseUserUUID(c)
+	if !ok {
+		return
+	}
+
+	documentID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid document ID", err)
+		return
+	}
+
+	if !h.permissionService.CanEdit(documentID, userUUID) {
+		response.Error(c, http.StatusForbidden, "Access denied", nil)
+		return
+	}
+
+	var req struct {
+		Update []int `json:"update"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "Invalid request body", err)
+		return
+	}
+
+	if len(req.Update) < 2 {
+		response.Error(c, http.StatusBadRequest, "Update payload too short to be a valid Yjs update", nil)
+		return
+	}
+
+	rawUpdate := make([]byte, len(req.Update))
+	for i, v := range req.Update {
+		rawUpdate[i] = byte(v)
+	}
+
+	if h.snapshotService != nil {
+		if err := h.snapshotService.ClearDocumentCRDTState(documentID); err != nil {
+			response.Error(c, http.StatusInternalServerError, "Failed to clear CRDT state", err)
+			return
+		}
+	}
+
+	if err := h.yjsService.SaveUpdate(documentID, rawUpdate, 1, 0); err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to save canonical CRDT state", err)
+		return
+	}
+
+	response.Success(c, http.StatusOK, "CRDT state reset successfully", nil)
+}
